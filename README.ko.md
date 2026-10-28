@@ -100,3 +100,9 @@ rm "$HOME/Library/LaunchAgents/local.kyungyeon.ai-quota-bar.plist"
 ```
 
 `bootout`에서 서비스를 찾을 수 없다고 하면 이미 종료된 상태입니다. 완전히 삭제하려면 `~/Applications/AiQuotaBar.app`도 휴지통으로 이동하세요. `~/Library/Application Support/AiQuotaBar/Backups/`의 백업은 복구용으로 보관하거나 별도로 삭제할 수 있습니다. Codex·Claude 설치와 계정은 영향을 받지 않습니다.
+
+## 라이선스
+
+AiQuotaBar의 자체 코드와 문서는 [MIT 라이선스](LICENSE)로 제공됩니다. 저작권 및 라이선스 고지를 유지하면 누구나 상업적 목적을 포함하여 자유롭게 사용·수정·재배포할 수 있습니다. 소프트웨어는 보증 없이 제공됩니다.
+
+외부 서비스의 아이콘과 상표는 각 소유자에게 권리가 있으며 이 MIT 라이선스의 적용 대상이 아닙니다. [서비스 아이콘 출처](Assets/README.md)를 참고하세요.

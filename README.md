@@ -100,3 +100,9 @@ rm "$HOME/Library/LaunchAgents/local.kyungyeon.ai-quota-bar.plist"
 ```
 
 If `bootout` says the service was not found, it is already stopped. To uninstall, also move `~/Applications/AiQuotaBar.app` to the Trash. Backups under `~/Library/Application Support/AiQuotaBar/Backups/` may be kept for rollback or removed separately. Your Codex and Claude installations and accounts are unaffected.
+
+## License
+
+AiQuotaBar's original code and documentation are licensed under the [MIT License](LICENSE). Anyone may use, modify, and redistribute them, including for commercial purposes, provided the copyright and license notices are preserved. The software is provided without warranty.
+
+Third-party provider icons and trademarks belong to their respective owners and are not covered by this MIT license. See [provider icon attribution](Assets/README.md).

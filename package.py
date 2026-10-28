@@ -14,8 +14,9 @@ resources = contents / "Resources"
 shutil.copy2(root / "build" / "AiQuotaBar", contents / "MacOS" / "AiQuotaBar")
 shutil.copy2(root / "Info.plist", contents / "Info.plist")
 shutil.copy2(root / "AppIcon.icns", resources / "AppIcon.icns")
+shutil.copy2(root / "LICENSE", resources / "LICENSE")
 shutil.copytree(root / "Assets", resources / "Assets")
-for name in ["main.swift", "Info.plist", "Makefile", "README.md", "README.ko.md", "package.py", "install.py", "AppIcon.icns", "AppIcon.png", "icon-prompt.md", ".gitignore"]:
+for name in ["main.swift", "Info.plist", "Makefile", "README.md", "README.ko.md", "LICENSE", "package.py", "install.py", "AppIcon.icns", "AppIcon.png", "icon-prompt.md", ".gitignore"]:
     shutil.copy2(root / name, resources / "source" / name)
 for name in ["Sources", "Tests", "Assets"]:
     shutil.copytree(root / name, resources / "source" / name)
