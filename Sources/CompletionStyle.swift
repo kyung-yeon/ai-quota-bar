@@ -90,9 +90,10 @@ final class CompletionButton: NSButton {
             // template symbol differently during cached Dark Mode rendering.
             color.setStroke()
             let check = NSBezierPath()
+            let direction: CGFloat = isFlipped ? -1 : 1
             check.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
-            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 5))
-            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 6))
+            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 5 * direction))
+            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 6 * direction))
             check.lineWidth = 1.5; check.lineCapStyle = .round; check.lineJoinStyle = .round
             check.stroke()
             return

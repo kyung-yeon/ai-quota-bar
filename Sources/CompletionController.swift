@@ -17,10 +17,11 @@ import AppKit
     private let preferences: UserDefaults
     private(set) var isOpen: Bool
     var onVisibilityChanged: (() -> Void)?
-    private var previewEvents: [CompletionEvent]?
     var onCountChanged: ((Int) -> Void)?
     var onConnectionChanged: (() -> Void)?
     var unreadCount: Int { events.count }
+    var pageSize: Int { panel.preferredPageSize }
+    func setPageSize(_ value: Int) { panel.setPageSize(value) }
 
     init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,
          discover: @escaping @Sendable () throws -> [LiveSession] = { try OrcaSessionDiscovery.read() },
@@ -29,17 +30,13 @@ import AppKit
         return HookInstaller.connectAvailable(executable: executable)
     }) {
         self.store = store
-        self.panel = panel ?? CompletionPanel()
+        self.panel = panel ?? CompletionPanel(preferences: preferences)
         self.connect = connect
         self.discover = discover
         self.preferences = preferences
         self.isOpen = !preferences.bool(forKey: "sessionPanelHidden")
         let panel = self.panel
         panel.onOpen = { [weak self] event in
-            if self?.previewEvents != nil {
-                self?.panel.showError(L10n.text("미리보기 항목은 실제 세션과 연결되지 않습니다.", "Preview items are not connected to real sessions."))
-                return
-            }
             Task { @MainActor in
                 do { try await SessionNavigator.open(event.destination); self?.panel.showError(nil) }
                 catch { self?.panel.showError(error.localizedDescription) }
@@ -47,7 +44,6 @@ import AppKit
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onAcknowledgeAll = { [weak self] in self?.acknowledge(nil) }
-        panel.onPreview = { [weak self] in self?.showPreview() }
         panel.onClose = { [weak self] in self?.close() }
     }
 
@@ -64,7 +60,6 @@ import AppKit
     }
 
     func show() {
-        previewEvents = nil
         isOpen = true
         preferences.set(false, forKey: "sessionPanelHidden")
         panel.showSessions(rows, animateNew: false)
@@ -72,22 +67,13 @@ import AppKit
     }
 
     func close() {
-        isOpen = false; previewEvents = nil
+        isOpen = false
         preferences.set(true, forKey: "sessionPanelHidden")
         panel.hide()
         onVisibilityChanged?()
     }
 
     func toggle() { if isOpen { close() } else { show() } }
-
-    func showPreview() {
-        isOpen = true
-        preferences.set(false, forKey: "sessionPanelHidden")
-        let samples = Preview.completionEvents()
-        previewEvents = samples
-        panel.show(samples, animateNew: true, preview: true)
-        onVisibilityChanged?()
-    }
 
     private var connectionSummary: String {
         let states = Provider.allCases.map { provider in
@@ -146,10 +132,9 @@ import AppKit
                 if !unavailable { self.discovered = live }
                 let newIDs = Set(current.map(\.id)).subtracting(self.events.map(\.id))
                 if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible) {
-                    if !newIDs.isEmpty { self.previewEvents = nil }
                     self.events = current
                     self.rows = rows
-                    if self.isOpen && self.previewEvents == nil { self.panel.showSessions(rows, animateNew: !newIDs.isEmpty) }
+                    if self.isOpen { self.panel.showSessions(rows, animateNew: !newIDs.isEmpty) }
                     self.onCountChanged?(current.count)
                 }
                 if unavailable && self.isOpen {
@@ -163,13 +148,6 @@ import AppKit
     }
 
     private func acknowledge(_ id: String?) {
-        if let preview = previewEvents {
-            let remaining = id.map { id in preview.filter { $0.id != id } } ?? []
-            previewEvents = remaining.isEmpty ? nil : remaining
-            if remaining.isEmpty { panel.showSessions(rows, animateNew: false) }
-            else { panel.show(remaining, animateNew: false, preview: true) }
-            return
-        }
         if events.isEmpty { return }
         let store = self.store
         let ids = id.map { Set([$0]) } ?? Set(events.map(\.id))

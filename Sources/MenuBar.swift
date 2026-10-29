@@ -129,7 +129,6 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     private let menu = NSMenu()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
-    private var previewObserver: NSObjectProtocol?
     private var states = Dictionary(uniqueKeysWithValues: Provider.allCases.map { ($0, ProviderState()) })
     private var menuOpen = false
     private var cardItems: [Provider: NSMenuItem] = [:]
@@ -148,9 +147,6 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
             completions.onConnectionChanged = { [weak self] in self?.render() }
             completions.onVisibilityChanged = { [weak self] in self?.render() }
             completions.start()
-            previewObserver = DistributedNotificationCenter.default().addObserver(
-                forName: NSNotification.Name("local.kyungyeon.ai-quota-bar.preview"), object: nil, queue: .main
-            ) { [weak self] _ in MainActor.assumeIsolated { self?.completions?.showPreview() } }
         }
         render()
         refresh()
@@ -266,7 +262,17 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         info.isEnabled = false
         menu.addItem(info)
         _ = action(completions?.isOpen == true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
-        _ = action(L10n.text("플로팅 미리보기", "Preview floating alert"), #selector(showCompletionPreview))
+        let settings = NSMenuItem(title: L10n.text("플로팅 설정", "Floating panel settings"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for size in CompletionPanel.pageSizeOptions {
+            let option = NSMenuItem(title: L10n.text("페이지당 \(size)개", "\(size) rows per page"), action: #selector(setCompletionPageSize(_:)), keyEquivalent: "")
+            option.target = self; option.tag = size
+            option.state = (completions?.pageSize ?? 10) == size ? .on : .off
+            submenu.addItem(option)
+        }
+        settings.submenu = submenu
+        menu.addItem(settings)
         if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
             _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
         }
@@ -289,7 +295,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     }
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
     @objc private func showCompletions() { completions?.toggle() }
-    @objc private func showCompletionPreview() { completions?.showPreview() }
+    @objc private func setCompletionPageSize(_ item: NSMenuItem) { completions?.setPageSize(item.tag); render() }
     @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

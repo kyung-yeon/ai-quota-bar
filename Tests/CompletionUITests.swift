@@ -19,7 +19,7 @@ import QuartzCore
     panel.panel.alphaValue = 0
     panel.panel.ignoresMouseEvents = true
     defer { panel.panel.orderOut(nil) }
-    let events = (0..<5).map { index in
+    let events = (0..<15).map { index in
         CompletionEvent(id: "event-\(index)", providerID: "codex", sessionID: "s\(index)", project: "Sample", directory: "/sample",
                         sessionName: "Session \(index)", completedAt: Date(), destination: SessionDestination())
     }
@@ -36,6 +36,7 @@ import QuartzCore
     let views = descendants(panel.panel.contentView!)
     let buttons = views.compactMap { $0 as? NSButton }
     let cards = views.compactMap { $0 as? CompletionCard }
+    try expect(panel.preferredPageSize == 10 && cards.count == 10, "A default page shows ten rows")
     try expect(!cards.isEmpty && cards.allSatisfy { $0.frame.height <= 50 && $0.frame.height > 0 },
                "Completion cards occupy at most one third of the former 142-point height, allowing rounding")
     try expect(cards.allSatisfy { card in
@@ -184,28 +185,12 @@ import QuartzCore
     waitForCount(0)
     try expect(controller.unreadCount == 0, "Actual dismiss action updates the controller")
     try expect(try store.load().unread.isEmpty, "Actual dismiss action persists across relaunch")
-    controller.showPreview()
-    try expect(try store.load().unread.isEmpty && controller.unreadCount == 0, "Preview data never becomes a real unread completion")
-    guard let previewWindow = NSApplication.shared.windows.first(where: { $0.isVisible && $0 is NSPanel }), let previewContent = previewWindow.contentView else { throw CompletionError.unavailable }
-    let previewViews = descendants(previewContent)
-    let sampleOpen = previewViews.compactMap { $0 as? NSButton }.filter { $0.identifier?.rawValue == "completion-open" }
-    try expect(!sampleOpen.isEmpty && sampleOpen.allSatisfy { !$0.isEnabled }, "Sample session navigation is visibly disabled")
-    try expect(previewViews.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains(L10n.text("예시 데이터", "Sample data")) },
-               "Preview is visibly marked as sample data")
-    previewViews.compactMap { $0 as? NSButton }.first { $0.title == L10n.text("모두 확인", "Dismiss all") }!.performClick(nil)
-    try expect(previewWindow.isVisible && (try store.load().unread.isEmpty), "Dismissing preview returns to the empty session list without changing the stored inbox")
     try store.record(events[2])
     waitForCount(1)
-    controller.showPreview()
-    let previewDismiss = descendants(previewContent).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-dismiss" }!
-    previewDismiss.performClick(nil)
-    try expect(try store.load().unread.map(\.id) == [events[2].id], "Dismissing a sample cannot acknowledge a real event")
-    descendants(previewContent).compactMap { $0 as? NSButton }.first { $0.title == L10n.text("모두 확인", "Dismiss all") }!.performClick(nil)
-    try expect(controller.unreadCount == 1 && previewWindow.isVisible, "Closing preview restores the real unread inbox")
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil)
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
     RunLoop.main.run(until: Date().addingTimeInterval(2.2))
-    try expect(previewWindow.isVisible && controller.unreadCount == 1, "Unread floating window remains after app/Space changes and refresh polling")
+    try expect(controllerPanel.panel.isVisible && controller.unreadCount == 1, "Unread floating window remains after app/Space changes and refresh polling")
     try store.acknowledgeAll()
     waitForCount(0)
     let running = SessionRow(event: events[1], activity: .running, isOpen: true, needsAttention: false)
@@ -284,6 +269,17 @@ import QuartzCore
     try expect(childOpen.toolTip == L10n.text("부모 세션 열기", "Open parent session"), "Child navigation explicitly identifies its parent terminal destination")
     try expect(descendants(animated.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Tree layout retains pagination without internal scrolling")
     animated.hide()
+    panel.show(events, animateNew: false)
+    panel.setPageSize(5)
+    try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.count == 5,
+               "Changing the page size immediately updates a visible panel")
+    let savedSizePanel = CompletionPanel(preferences: preferences)
+    try expect(savedSizePanel.preferredPageSize == 5, "Rows per page persists across a new panel instance")
+    panel.hide()
+    panel.setPageSize(15)
+    try expect(!panel.panel.isVisible && panel.preferredPageSize == 15, "Changing size while hidden does not reopen the panel")
+    panel.setPageSize(0)
+    try expect(panel.preferredPageSize == 15, "Invalid page size cannot create an empty or unbounded layout")
     print("PASS: \(checks) completion UI and persistence checks")
 }
 

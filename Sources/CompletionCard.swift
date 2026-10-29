@@ -6,10 +6,10 @@ final class CompletionCard: NSView {
     let row: SessionRow
     private let spinner = SessionSpinner()
     private var indentation: CGFloat { CGFloat(min(row.depth, 5)) * 14 }
-    convenience init(event: CompletionEvent, preview: Bool = false, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
-        self.init(row: SessionRow(event: event), preview: preview, open: open, acknowledge: acknowledge)
+    convenience init(event: CompletionEvent, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+        self.init(row: SessionRow(event: event), open: open, acknowledge: acknowledge)
     }
-    init(row: SessionRow, preview: Bool = false, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+    init(row: SessionRow, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.row = row
         let event = row.event
         completedAt = event.completedAt
@@ -25,9 +25,7 @@ final class CompletionCard: NSView {
         title.controlSize = .mini
         title.alignment = .left
         title.foreground = !row.needsAttention && row.activity != .running ? .secondaryLabelColor : nil
-        title.isEnabled = !preview
-        let previewHint = L10n.text("예시 알림에는 연결된 세션이 없습니다.", "Sample alerts have no connected session.")
-        title.toolTip = preview ? previewHint : event.project + "\n" + event.directory
+        title.toolTip = event.project + "\n" + event.directory
         title.setAccessibilityLabel(L10n.text("\(event.project) 세션 열기", "Open \(event.project) session"))
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -46,10 +44,9 @@ final class CompletionCard: NSView {
         icon.heightAnchor.constraint(equalToConstant: iconSize).isActive = true
         let openButton = CompletionButton("", symbol: "arrow.up.right", plain: true, action: open)
         let openLabel = row.opensParent ? L10n.text("부모 세션 열기", "Open parent session") : L10n.text("세션 열기", "Open session")
-        openButton.toolTip = preview ? previewHint : openLabel
+        openButton.toolTip = openLabel
         openButton.setAccessibilityLabel(openLabel)
         openButton.identifier = NSUserInterfaceItemIdentifier("completion-open")
-        openButton.isEnabled = !preview
         let dismiss = CompletionButton("", symbol: "checkmark", prominent: true, action: acknowledge)
         dismiss.toolTip = L10n.text("확인", "Dismiss")
         dismiss.setAccessibilityLabel(dismiss.toolTip!)

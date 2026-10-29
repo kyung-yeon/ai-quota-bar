@@ -19,9 +19,13 @@ private final class CompletionWindow: NSPanel {
     private let previous = CompletionButton("", symbol: "chevron.left", plain: true, action: {})
     private let next = CompletionButton("", symbol: "chevron.right", plain: true, action: {})
     private var displayedRows: [SessionRow] = []
-    private var isPreview = false
     private var pageIndex = 0
-    private var pageSize = 3
+    private var pageSize = 10
+    static let pageSizeOptions = [5, 10, 15, 20]
+    var preferredPageSize: Int {
+        let value = preferences.integer(forKey: "sessionPageSize")
+        return Self.pageSizeOptions.contains(value) ? value : 10
+    }
     private let heading = CompletionCard.label("", size: 13)
     private let badge = CompletionCard.label("", size: 12)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
@@ -38,7 +42,6 @@ private final class CompletionWindow: NSPanel {
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
     var onAcknowledgeAll: (() -> Void)?
-    var onPreview: (() -> Void)?
     var onClose: (() -> Void)?
     var activeWiggle: CAAnimation? { chrome.layer?.animation(forKey: motionKey) }
 
@@ -144,24 +147,22 @@ private final class CompletionWindow: NSPanel {
         positioning = false
     }
 
-    func show(_ events: [CompletionEvent], animateNew: Bool, preview: Bool = false) {
+    func show(_ events: [CompletionEvent], animateNew: Bool) {
         guard !events.isEmpty else { displayedRows = []; count = 0; hide(); return }
-        showSessions(events.map { SessionRow(event: $0) }, animateNew: animateNew, preview: preview)
+        showSessions(events.map { SessionRow(event: $0) }, animateNew: animateNew)
     }
 
-    func showSessions(_ rows: [SessionRow], animateNew: Bool, preview: Bool = false) {
+    func showSessions(_ rows: [SessionRow], animateNew: Bool) {
         let oldPositions = Dictionary(uniqueKeysWithValues: list.arrangedSubviews.compactMap { view -> (String, NSRect)? in
             guard let card = view as? CompletionCard else { return nil }
             return (card.row.id, card.convert(card.bounds, to: panel.contentView))
         })
         count = rows.count
         displayedRows = rows
-        isPreview = preview
         if animateNew { pageIndex = 0 }
         clearList()
         guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
-        heading.stringValue = preview ? L10n.text("미리보기 · 예시 데이터", "Preview · Sample data")
-            : L10n.text("AI 세션", "AI sessions")
+        heading.stringValue = L10n.text("AI 세션", "AI sessions")
         badge.stringValue = "\(rows.count)"
         dismissAll.title = L10n.text("모두 확인", "Dismiss all")
         dismissAll.isEnabled = rows.contains(where: \.needsAttention)
@@ -194,7 +195,7 @@ private final class CompletionWindow: NSPanel {
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages.count
         for row in pages[pageIndex] {
-            let card = CompletionCard(row: row, preview: isPreview, open: { [weak self] in self?.onOpen?(row.event) },
+            let card = CompletionCard(row: row, open: { [weak self] in self?.onOpen?(row.event) },
                                       acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
             addRow(card)
         }
@@ -215,7 +216,6 @@ private final class CompletionWindow: NSPanel {
         let text = NSTextField(wrappingLabelWithString: message)
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)
-        addRow(CompletionButton(L10n.text("플로팅 미리보기", "Preview floating alert"), symbol: "play.fill") { [weak self] in self?.onPreview?() })
         dismissAll.title = L10n.text("모두 확인", "Dismiss all")
         dismissAll.isEnabled = false
         position()
@@ -232,6 +232,13 @@ private final class CompletionWindow: NSPanel {
         stopAnimation()
         list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(false) }
         panel.orderOut(nil)
+    }
+
+    func setPageSize(_ value: Int) {
+        guard Self.pageSizeOptions.contains(value) else { return }
+        preferences.set(value, forKey: "sessionPageSize")
+        pageIndex = 0
+        if panel.isVisible { showSessions(displayedRows, animateNew: false) }
     }
 
     private func updateActivityMotion() {
@@ -263,8 +270,7 @@ private final class CompletionWindow: NSPanel {
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
         let width = min(432 + Self.animationInset * 2, visible.width)
         if count > 0 {
-            let maximum = displayedRows.contains { $0.depth > 0 } ? 6 : 3
-            let capacity = min(maximum, max(1, Int((visible.height - 120) / 54)))
+            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / 54)))
             if capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))
