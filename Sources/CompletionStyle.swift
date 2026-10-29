@@ -54,6 +54,8 @@ final class CompletionButton: NSButton {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     @objc private func invoke() { perform?() }
+    // This control draws its whole frame; NSButton's symbol/bezel insets distort icon buttons.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
     override var intrinsicContentSize: NSSize {
         let text = (title as NSString).size(withAttributes: [.font: font!])
         if title.isEmpty, image != nil { return NSSize(width: 26, height: 26) }

@@ -6,6 +6,23 @@ struct CompletionState: Codable {
     var events: [CompletionEvent] = []
     var contexts: [String: CompletionContext]?
     var unread: [CompletionEvent] { events.filter { $0.acknowledgedAt == nil }.sorted { $0.completedAt > $1.completedAt } }
+
+    mutating func keepLatestPerSession(at now: Date = Date()) {
+        var latest: [String: Int] = [:]
+        for index in events.indices {
+            let event = events[index]
+            let key = event.providerID + "\u{0}" + event.sessionID
+            if let previous = latest[key], events[previous].completedAt > event.completedAt { continue }
+            latest[key] = index
+        }
+        for index in events.indices where events[index].acknowledgedAt == nil {
+            let key = events[index].providerID + "\u{0}" + events[index].sessionID
+            if let newest = latest[key], newest != index {
+                // Keep replaced IDs for replay protection, but never resurface an older card.
+                events[index].acknowledgedAt = events[newest].acknowledgedAt ?? now
+            }
+        }
+    }
 }
 
 struct CompletionContext: Codable {
@@ -24,8 +41,9 @@ struct CompletionStore {
     func load() throws -> CompletionState {
         guard FileManager.default.fileExists(atPath: file.path) else { return CompletionState() }
         do {
-            let state = try JSONDecoder().decode(CompletionState.self, from: Data(contentsOf: file))
+            var state = try JSONDecoder().decode(CompletionState.self, from: Data(contentsOf: file))
             guard state.version == 1 else { throw CompletionError.corruptStore }
+            state.keepLatestPerSession()
             return state
         } catch { throw CompletionError.corruptStore }
     }
@@ -89,6 +107,7 @@ struct CompletionStore {
         defer { flock(lock, LOCK_UN) }
         var state = try load()
         try change(&state)
+        state.keepLatestPerSession()
         // Never expire unread alerts. Keep acknowledged IDs for 90 days to suppress replays.
         let cutoff = Date().addingTimeInterval(-90 * 86400)
         state.events.removeAll { $0.acknowledgedAt.map { $0 < cutoff } ?? false }

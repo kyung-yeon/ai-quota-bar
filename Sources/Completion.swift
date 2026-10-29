@@ -8,7 +8,7 @@ enum CompletionError: Error, LocalizedError {
         case .invalidEvent: return L10n.text("완료 이벤트 형식을 확인해 주세요.", "Invalid completion event.")
         case .busy: return L10n.text("잠시 후 다시 시도해 주세요.", "Please try again shortly.")
         case .unavailable: return L10n.text("원래 세션으로 이동하지 못했습니다. 앱·탭이 열려 있는지와 자동화 권한을 확인해 주세요.", "Could not open the original session. Check that its app and tab are open and automation is allowed.")
-        case .unsupported: return L10n.text("이 환경의 탭으로 바로 이동할 수 없습니다. 세션 재개 명령을 복사해 사용해 주세요.", "Direct navigation is unavailable for this environment. Copy the resume command instead.")
+        case .unsupported: return L10n.text("이 환경의 탭으로 바로 이동할 수 없습니다. 원래 터미널에서 세션을 직접 열어 주세요.", "Direct navigation is unavailable for this environment. Open the session in its original terminal.")
         case .corruptStore: return L10n.text("알림 저장 파일을 읽지 못했습니다. 기존 파일은 보존했습니다.", "Cannot read the notification store. The existing file has been preserved.")
         }
     }

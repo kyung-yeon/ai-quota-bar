@@ -23,21 +23,14 @@ final class CompletionCard: NSView {
         session.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let details = NSStackView(views: [title, session])
         details.orientation = .vertical; details.alignment = .leading; details.spacing = 1
+        details.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let icon = NSImageView()
         icon.image = ProviderIcon.image(event.provider, size: 20)
+        icon.imageScaling = .scaleProportionallyUpOrDown
         icon.toolTip = event.provider.name + " · " + event.destination.label
         icon.setAccessibilityLabel(icon.toolTip!)
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        let copy = CompletionButton("", symbol: "doc.on.doc", plain: true) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(SessionNavigator.resumeCommand(event), forType: .string)
-        }
-        let copyLabel = L10n.text("재개 명령 복사", "Copy resume command")
-        copy.toolTip = preview ? previewHint : copyLabel
-        copy.setAccessibilityLabel(copyLabel)
-        copy.isEnabled = !preview
-        copy.identifier = NSUserInterfaceItemIdentifier("completion-copy")
         let openButton = CompletionButton("", symbol: "arrow.up.right", plain: true, action: open)
         let openLabel = L10n.text("세션 열기", "Open session")
         openButton.toolTip = preview ? previewHint : openLabel
@@ -48,15 +41,20 @@ final class CompletionCard: NSView {
         dismiss.toolTip = L10n.text("확인", "Dismiss")
         dismiss.setAccessibilityLabel(dismiss.toolTip!)
         dismiss.identifier = NSUserInterfaceItemIdentifier("completion-dismiss")
-        [copy, openButton, dismiss].forEach {
+        [openButton, dismiss].forEach {
             $0.controlSize = .small
             $0.widthAnchor.constraint(equalToConstant: 26).isActive = true
             $0.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
-        let buttons = NSStackView(views: [copy, openButton, dismiss])
+        let buttons = NSStackView(views: [openButton, dismiss])
         buttons.spacing = 3
-        let stack = NSStackView(views: [icon, details, NSView(), time, buttons])
-        stack.alignment = .centerY; stack.spacing = 8
+        let stack = NSView()
+        [icon, details, time, buttons].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            stack.addSubview($0)
+            $0.centerYAnchor.constraint(equalTo: stack.centerYAnchor).isActive = true
+        }
+        time.setContentHuggingPriority(.required, for: .horizontal)
         stack.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -68,6 +66,13 @@ final class CompletionCard: NSView {
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
             stack.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
+            stack.heightAnchor.constraint(equalToConstant: 34),
+            icon.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+            details.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            time.leadingAnchor.constraint(equalTo: details.trailingAnchor, constant: 8),
+            buttons.leadingAnchor.constraint(equalTo: time.trailingAnchor, constant: 8),
+            buttons.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
+            buttons.widthAnchor.constraint(equalToConstant: 55),
             title.widthAnchor.constraint(equalTo: details.widthAnchor),
             session.widthAnchor.constraint(equalTo: details.widthAnchor)
         ])

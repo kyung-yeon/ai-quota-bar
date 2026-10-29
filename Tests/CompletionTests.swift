@@ -30,6 +30,37 @@ func completionTests() throws {
     try store.record(newest)
     try store.acknowledge(Set([other.id]))
     try expect(try store.load().unread.map(\.id) == [newest.id], "Confirming a snapshot does not dismiss a concurrently arriving event")
+    let grouped = CompletionStore(directory: directory.appendingPathComponent("grouped"))
+    let base = Date()
+    func completion(_ id: String, _ offset: TimeInterval, provider: String = "codex", session: String = "same-session") -> CompletionEvent {
+        CompletionEvent(id: id, providerID: provider, sessionID: session, project: "Project", directory: "/project",
+                        sessionName: id, completedAt: base.addingTimeInterval(offset),
+                        destination: SessionDestination(host: .orca, target: "term_" + id))
+    }
+    let earliest = completion("first", 0), latest = completion("latest", 1)
+    try grouped.record(earliest); try grouped.record(latest)
+    try expect(try grouped.load().unread.map(\.id) == [latest.id], "A newer completion replaces the unread card for its provider and session")
+    try expect(try grouped.load().unread.first?.destination == latest.destination, "The replacement keeps the latest session label and navigation target")
+    try grouped.record(earliest)
+    try grouped.record(completion("delayed-old", -1))
+    try expect(try grouped.load().unread.map(\.id) == [latest.id], "Replayed and delayed older completions cannot replace the latest card")
+    try grouped.acknowledge(Set([earliest.id]))
+    try expect(try grouped.load().unread.map(\.id) == [latest.id], "Dismissing an older card does not hide its newer replacement")
+    try grouped.record(completion("claude-same-id", 2, provider: "claude"))
+    try grouped.record(completion("other-session", 3, session: "other"))
+    try expect(try grouped.load().unread.count == 3, "Different providers and sessions keep independent cards")
+    try grouped.acknowledge(latest.id)
+    try expect(try grouped.load().unread.allSatisfy { $0.providerID != "codex" || $0.sessionID != "same-session" },
+               "Dismissing the latest card cannot reveal an older completion")
+    let legacy = CompletionState(events: [earliest, latest])
+    try JSONEncoder().encode(legacy).write(to: grouped.file)
+    try expect(try CompletionStore(directory: grouped.directory).load().unread.map(\.id) == [latest.id],
+               "Relaunch coalesces multiple unread cards saved by older app versions")
+    try grouped.acknowledge(latest.id)
+    try grouped.record(earliest)
+    try expect(try grouped.load().unread.isEmpty, "Legacy older IDs remain suppressed after acknowledging the latest")
+    try grouped.record(completion("tie-a", 5)); try grouped.record(completion("tie-b", 5))
+    try expect(try grouped.load().unread.map(\.id) == ["tie-b"], "Equal timestamps use the most recently received completion")
     for kind in ["SessionStart", "SessionEnd", "SubagentStop", "Interrupt", "StopFailure"] {
         let data = try JSONSerialization.data(withJSONObject: ["hook_event_name": kind, "session_id": "s", "cwd": "/p"])
         try expect(try CompletionEvent.decode(data, provider: .claude, environment: [:]) == nil, "\(kind) is not a completion")

@@ -53,6 +53,22 @@ class CompletionIntegrationTests(unittest.TestCase):
             self.assertEqual(self.hook(stop, "claude").returncode, 0)
         self.assertEqual(len(self.state()["events"]), 2)
 
+    def test_concurrent_turns_keep_one_unread_card_per_provider_and_session(self):
+        payloads = [self.completion("same-session", f"turn-{i}") for i in range(12)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as workers:
+            results = list(workers.map(self.hook, payloads))
+        self.assertTrue(all(p.returncode == 0 for p in results), [p.stderr for p in results])
+        stored = self.state()["events"]
+        unread = [e for e in stored if e.get("acknowledgedAt") is None]
+        self.assertEqual(len(stored), 12)  # Retain replaced IDs to suppress replays.
+        self.assertEqual(len(unread), 1)
+        latest_id = unread[0]["id"]
+        for payload in payloads:
+            self.assertEqual(self.hook(payload).returncode, 0)
+        self.assertEqual([e["id"] for e in self.state()["events"] if e.get("acknowledgedAt") is None], [latest_id])
+        self.assertEqual(self.hook(self.completion("same-session", "claude-turn"), "claude").returncode, 0)
+        self.assertEqual(len([e for e in self.state()["events"] if e.get("acknowledgedAt") is None]), 2)
+
     def test_ignored_events_do_not_create_alerts(self):
         for event in ["SessionStart", "Interrupt", "StopFailure", "SessionEnd", "SubagentStop"]:
             result = self.hook({"hook_event_name": event, "session_id": "s", "cwd": "/p"})

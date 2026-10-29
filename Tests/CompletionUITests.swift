@@ -43,6 +43,14 @@ import QuartzCore
         let bounds = action.convert(action.bounds, to: card)
         return bounds.width >= 26 && bounds.height >= 26 && abs(card.bounds.maxX - bounds.maxX - 10) < 1
     }, "Compact action buttons stay aligned to the right edge with usable hit areas")
+    try expect(buttons.filter { $0.identifier?.rawValue == "completion-dismiss" || $0.identifier?.rawValue == "completion-open" }
+        .allSatisfy { abs($0.frame.width - $0.frame.height) < 0.1 },
+        "Icon action buttons are visually square, without native bezel alignment insets")
+    try expect(cards.allSatisfy { card in
+        let title = descendants(card).compactMap { $0 as? NSButton }.first { !$0.title.isEmpty }
+        return (title?.frame.width ?? 0) > card.frame.width * 0.55
+    }, "Project and session titles receive the available row width instead of a blank spacer")
+    try expect(buttons.allSatisfy { $0.identifier?.rawValue != "completion-copy" }, "The notification has no copy action")
     try expect(panel.panel.isVisible && !panel.panel.hidesOnDeactivate, "Panel stays visible across app changes")
     try expect(panel.panel.level.rawValue >= NSWindow.Level.statusBar.rawValue && !panel.panel.canHide,
                "Floating inbox stays above ordinary and floating application windows")
@@ -156,6 +164,17 @@ import QuartzCore
     let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: claudeConfig)) as! [String: Any]
     try expect(settings["theme"] as? String == "dark" && settings["hooks"] != nil, "Starting the controller connects Claude and preserves its existing settings")
     try expect(controller.unreadCount == 1, "Controller restores unread alerts from disk")
+    let replacement = CompletionEvent(id: "replacement", providerID: events[0].providerID, sessionID: events[0].sessionID,
+        project: events[0].project, directory: events[0].directory, sessionName: "Latest response",
+        completedAt: Date().addingTimeInterval(1), destination: SessionDestination())
+    try store.record(replacement)
+    func hasReplacement() -> Bool {
+        descendants(controllerPanel.panel.contentView!).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Latest response" }
+    }
+    let replacementDeadline = Date().addingTimeInterval(4)
+    while !hasReplacement() && Date() < replacementDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    try expect(hasReplacement() && controller.unreadCount == 1,
+               "A newer completion updates the visible session card even when the unread count stays one")
     try store.record(events[1])
     waitForCount(2)
     try expect(controller.unreadCount == 2, "Controller discovers a completion received while running")

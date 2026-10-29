@@ -2,11 +2,13 @@
 
 AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards initially appear on the macOS primary display, float above other apps across Spaces (including full-screen spaces), and remain until you choose **Dismiss** or **Dismiss all**. Drag the panel's header or background to any connected display. Its position is remembered, including when new cards arrive or the app restarts. If that display is disconnected, the panel returns to the primary display.
 
-The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each compact 48-point card shows a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. The copy icon copies the resume command; **✓ Dismiss** acknowledges the card. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. Up to three cards fit on a page (fewer on a small display); previous/next buttons expose the rest.
+Only the latest completion for each provider/session appears. A new completion updates that card and its time; previous event IDs remain stored for replay protection. Existing duplicate cards are collapsed when the app loads them. Dismissing the newest card does not reveal older completions.
+
+The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each compact 48-point card shows a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. **✓ Dismiss** acknowledges the card. The title uses the available row width, and action buttons are square. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. Up to three cards fit on a page (fewer on a small display); previous/next buttons expose the rest.
 
 The entire panel swings three times by ±3° around its top-right corner when new completions arrive and every 12 seconds afterward. Each movement takes 0.11 seconds. Dismissal stops the animation; macOS **Reduce motion** disables it, including when enabled while the animation is running.
 
-Choose **Preview floating alert** in the menu to see and dismiss two clearly marked sample cards without running an agent. Preview cards are never stored, never count as unread completions, and have session navigation and command copying disabled. Real incoming completions replace the preview. **Show completions** also uses the custom panel when the inbox is empty.
+Choose **Preview floating alert** in the menu to see and dismiss two clearly marked sample cards without running an agent. Preview cards are never stored, never count as unread completions, and have session navigation disabled. Real incoming completions replace the preview. **Show completions** also uses the custom panel when the inbox is empty.
 
 <img src="../Assets/screenshots/completions-en.png" alt="Completion cards for fictional Codex and Claude Code sessions" width="390">
 
@@ -55,9 +57,9 @@ AIQUOTABAR_SESSION_NAME="Account settings" codex
 | WezTerm | Existing pane via `wezterm cli activate-pane` | Requires `WEZTERM_PANE`; preserves `WEZTERM_UNIX_SOCKET` when supplied. |
 | kitty | Existing pane via `kitten @ focus-window` | Requires `KITTY_WINDOW_ID`, a local `unix:` `KITTY_LISTEN_ON`, and already-configured remote-control permission. AiQuotaBar does not change kitty settings. |
 | Herdr | Current attached terminal plus the Herdr agent pane | Start Herdr using the wrapper below. The most recently registered live attachment is used. |
-| Ghostty, VS Code / Cursor integrated terminal, tmux, screen, SSH | Completion cards and **Copy resume** | Exact-tab navigation is not implemented. These environments need additional session mapping or an extension/remote bridge. |
+| Ghostty, VS Code / Cursor integrated terminal, tmux, screen, SSH | Completion cards only | Exact-tab navigation is not implemented. These environments need additional session mapping or an extension/remote bridge. |
 
-Navigation uses captured identifiers, never the frontmost tab, project name, or screen coordinates. A closed tab, unavailable CLI, denied Automation permission, unsupported environment, or expired handle leaves the card unread with an explanation. **Copy resume** copies a shell-quoted command; it does not execute it or create another session automatically. URL-based integrations can acknowledge only that macOS accepted the URL, not that the pane became visible, so opening a card never counts as dismissal.
+Navigation uses captured identifiers, never the frontmost tab, project name, or screen coordinates. A closed tab, unavailable CLI, denied Automation permission, unsupported environment, or expired handle leaves the card unread with an explanation. If navigation is unavailable, open or resume the session in its original terminal. URL-based integrations can acknowledge only that macOS accepted the URL, not that the pane became visible, so opening a card never counts as dismissal.
 
 ### Herdr
 
@@ -70,7 +72,7 @@ AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
 "$AQB" --run-herdr --session work
 ```
 
-Run this in a supported outer terminal, then launch Codex / Claude with the hooks connected. The wrapper records the outer terminal and replaces itself with `herdr`; it does not create an additional agent or intercept terminal input. On click, AiQuotaBar checks that attachment's process lifetime and the Herdr socket identity, selects the Herdr pane, and reveals the outer tab. Reattach with the wrapper after changing terminals. If several clients attach, the last registered live client is the destination. A server restart invalidates old pane destinations; use **Copy resume** rather than opening a potentially reused pane ID. SSH and nested tmux/Herdr attachments are not supported by this wrapper.
+Run this in a supported outer terminal, then launch Codex / Claude with the hooks connected. The wrapper records the outer terminal and replaces itself with `herdr`; it does not create an additional agent or intercept terminal input. On click, AiQuotaBar checks that attachment's process lifetime and the Herdr socket identity, selects the Herdr pane, and reveals the outer tab. Reattach with the wrapper after changing terminals. If several clients attach, the last registered live client is the destination. A server restart invalidates old pane destinations; reopen the session manually instead of following a potentially reused pane ID. SSH and nested tmux/Herdr attachments are not supported by this wrapper.
 
 ## What “finished” means
 
@@ -86,10 +88,11 @@ Before switching to this advanced integration, run `--remove-completion-hooks co
 
 ## Local data and troubleshooting
 
-`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, and local Herdr bindings. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. Unread cards never expire; acknowledged event IDs are kept for 90 days to prevent replay after restart. All unread cards remain available through page controls; the panel fits its current page without scrolling.
+`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, and local Herdr bindings. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. The latest unread card per provider/session never expires; acknowledged and replaced event IDs are kept for 90 days to prevent replay after restart. All unread cards remain available through page controls; the panel fits its current page without scrolling.
 
+- **Only some sessions notify:** sessions already running when hooks were installed or trusted may still use their previous hook configuration. After their current work finishes, restart Codex and resume the same conversation with `codex resume`, then review AiQuotaBar in `/hooks`. Installing or restarting AiQuotaBar alone does not refresh those running Codex sessions.
 - **No cards:** check the configuration path, start a new session, review Codex `/hooks`, and ensure hooks are not globally disabled. Test from the same profile used by the agent manager.
-- **No direct navigation:** sample previews have no real session and disable navigation. For real alerts, check the table above, Automation permissions, and whether the original tab still exists; use **Copy resume** when the destination is unavailable. For Herdr, attach through `--run-herdr`.
+- **No direct navigation:** sample previews have no real session and disable navigation. For real alerts, check the table above, Automation permissions, and whether the original tab still exists; open the session manually when the destination is unavailable. For Herdr, attach through `--run-herdr`.
 - **Store error:** AiQuotaBar preserves an unreadable file rather than silently resetting it. Quit the app and back up the Notifications folder before repairing it.
 - **Moving:** launch from the new location to update the automatic profile; reconnect custom profiles with the CLI. **Uninstalling:** disconnect hooks in every profile first. Unread metadata remains until you separately remove the Notifications folder.
 
