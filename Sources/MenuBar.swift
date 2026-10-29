@@ -144,6 +144,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
             let completions = CompletionController()
             self.completions = completions
             completions.onCountChanged = { [weak self] _ in self?.render() }
+            completions.onConnectionChanged = { [weak self] in self?.render() }
             completions.start()
         }
         render()
@@ -160,7 +161,10 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } }
     }
 
-    @objc func refresh() { Provider.allCases.forEach { refresh($0) } }
+    @objc func refresh() {
+        completions?.refreshConnections(force: true)
+        Provider.allCases.forEach { refresh($0) }
+    }
 
     private func refresh(_ provider: Provider, allowKeychainPrompt: Bool = false) {
         guard states[provider]?.fetching == false else { return }
@@ -257,16 +261,9 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         info.isEnabled = false
         menu.addItem(info)
         _ = action(L10n.text("완료 알림 보기", "Show completions") + " (\(completions?.unreadCount ?? 0))", #selector(showCompletions))
-        let setup = NSMenuItem(title: L10n.text("완료 알림 연결", "Completion notifications"), action: nil, keyEquivalent: "")
-        let setupMenu = NSMenu()
-        for provider in Provider.allCases {
-            for remove in [false, true] {
-                let item = NSMenuItem(title: provider.name + " · " + (remove ? L10n.text("연결 해제…", "Disconnect…") : L10n.text("연결…", "Connect…")), action: #selector(configureCompletions(_:)), keyEquivalent: "")
-                item.target = self; item.representedObject = [provider.rawValue, remove ? "remove" : "install"]
-                setupMenu.addItem(item)
-            }
+        if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
+            _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
         }
-        setup.submenu = setupMenu; menu.addItem(setup)
         let busy = states.values.contains { $0.fetching }
         let refresh = action(busy ? L10n.text("갱신 중…", "Refreshing…") : L10n.text("지금 새로고침", "Refresh now"), #selector(refresh as () -> Void), key: "r")
         refresh.isEnabled = !busy
@@ -286,9 +283,6 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     }
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
     @objc private func showCompletions() { completions?.show() }
-    @objc private func configureCompletions(_ item: NSMenuItem) {
-        guard let values = item.representedObject as? [String], let provider = Provider(rawValue: values[0]) else { return }
-        completions?.configure(provider, remove: values[1] == "remove")
-    }
+    @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

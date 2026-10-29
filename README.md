@@ -84,9 +84,11 @@ The app searches standard Homebrew paths, `~/.local/bin`, the launch environment
 
 ## Completion notifications
 
-Connect each provider from **Completion notifications** in the menu, then start a new session. Codex requires reviewing the new hooks in `/hooks`. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
+Launch AiQuotaBar to automatically connect installed Codex and Claude Code CLIs; no connection menu or setup dialog is required. Start a new agent session afterward. Codex still requires reviewing and trusting new hooks in `/hooks`. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
 
-Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets offer a copyable resume command. Setup preserves existing hooks and saves backups; it does not connect providers until you choose to do so.
+Notifications appear on the macOS primary display, regardless of which monitor has the active app. Changing the primary display repositions the panel automatically.
+
+Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets offer a copyable resume command. Automatic setup preserves existing hooks and backs up changed configuration files. Missing tools are skipped and detected after installation; invalid or disabled hook settings are left intact and shown as a connection issue.
 
 See the [completion notification guide](Docs/Notifications.md) for supported versions and environments, Herdr setup, custom profiles, completion semantics, and local data retention. This feature is available in source builds and is not yet in the published v0.1.0 DMG.
 
@@ -132,7 +134,7 @@ This compiles both architectures, creates a portable bundle, and produces `dist/
 
 ## Stop automatic launch or uninstall
 
-If completion hooks are connected, choose **Completion notifications → Disconnect…** for each provider and custom profile before deleting the app. Unread completion metadata is stored separately in `~/Library/Application Support/AiQuotaBar/Notifications/`.
+Before deleting the app, run its executable with `--remove-completion-hooks codex` and `--remove-completion-hooks claude` for each provider and custom profile ([CLI instructions](Docs/Notifications.md#custom-profiles-and-agent-managers)). Unread completion metadata is stored separately in `~/Library/Application Support/AiQuotaBar/Notifications/`.
 
 Choose **Quit AiQuotaBar** to end the current session. It will run again at the next login unless you disable the login item:
 

@@ -4,7 +4,9 @@ import AppKit
     func expect(_ value: Bool, _ message: String) throws {
         if !value { throw NSError(domain: "Completion UI test: \(message)", code: 1) }
     }
-    let panel = CompletionPanel()
+    guard let primary = NSScreen.screens.first else { throw CompletionError.unavailable }
+    var primaryFrame = primary.visibleFrame
+    let panel = CompletionPanel(primaryVisibleFrame: { primaryFrame })
     defer { panel.panel.orderOut(nil) }
     let events = (0..<5).map { index in
         CompletionEvent(id: "event-\(index)", providerID: "codex", sessionID: "s\(index)", project: "Sample", directory: "/sample",
@@ -24,6 +26,13 @@ import AppKit
     let buttons = views.compactMap { $0 as? NSButton }
     try expect(panel.panel.isVisible && !panel.panel.hidesOnDeactivate, "Panel stays visible across app changes")
     try expect(panel.panel.collectionBehavior.contains(.fullScreenAuxiliary), "Full-screen auxiliary panel")
+    try expect(primaryFrame.contains(panel.panel.frame), "Notification starts on the primary display")
+    panel.panel.setFrameOrigin(NSPoint(x: primaryFrame.maxX + 200, y: primaryFrame.minY))
+    panel.show(events, animateNew: false)
+    try expect(primaryFrame.contains(panel.panel.frame), "A saved secondary-display position moves back to the primary display")
+    primaryFrame = primaryFrame.insetBy(dx: 45, dy: 45)
+    NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    try expect(primaryFrame.contains(panel.panel.frame), "Display layout changes keep the notification inside the current primary display")
     let open = buttons.first { $0.title == L10n.text("세션 열기", "Open session") }!
     open.performClick(nil)
     try expect(opened == "event-0" && dismissed == nil && !all, "Opening the correct session does not dismiss it")
@@ -37,15 +46,31 @@ import AppKit
     try expect(!panel.panel.isVisible, "Last confirmation hides the empty panel")
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("aiquota-ui-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
+    let codexConfig = directory.appendingPathComponent("codex/hooks.json")
+    let claudeConfig = directory.appendingPathComponent("claude/settings.json")
+    try FileManager.default.createDirectory(at: claudeConfig.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"{"theme":"dark"}"#.utf8).write(to: claudeConfig)
+    let environment = ["CODEX_HOME": codexConfig.deletingLastPathComponent().path,
+                       "CLAUDE_CONFIG_DIR": claudeConfig.deletingLastPathComponent().path]
     let store = CompletionStore(directory: directory)
     try store.record(events[0])
-    let controller = CompletionController(store: store)
+    let controller = CompletionController(store: store, connect: {
+        HookInstaller.connectAvailable(executable: "/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar",
+                                       environment: environment, isInstalled: { _ in true })
+    })
     controller.start()
     func waitForCount(_ count: Int) {
         let deadline = Date().addingTimeInterval(4)
         while controller.unreadCount != count && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
     }
     waitForCount(1)
+    let connectionDeadline = Date().addingTimeInterval(4)
+    while controller.connectionStates.count < 2 && Date() < connectionDeadline {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+    try expect(FileManager.default.fileExists(atPath: codexConfig.path), "Starting the controller connects Codex without a menu action")
+    let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: claudeConfig)) as! [String: Any]
+    try expect(settings["theme"] as? String == "dark" && settings["hooks"] != nil, "Starting the controller connects Claude and preserves its existing settings")
     try expect(controller.unreadCount == 1, "Controller restores unread alerts from disk")
     try store.record(events[1])
     waitForCount(2)
@@ -56,5 +81,5 @@ import AppKit
     waitForCount(0)
     try expect(controller.unreadCount == 0, "Actual dismiss action updates the controller")
     try expect(try store.load().unread.isEmpty, "Actual dismiss action persists across relaunch")
-    print("PASS: 11 completion UI and persistence checks")
+    print("PASS: 16 completion UI and persistence checks")
 }

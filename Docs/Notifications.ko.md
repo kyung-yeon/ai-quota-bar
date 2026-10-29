@@ -1,6 +1,6 @@
 # 완료 알림
 
-여러 Codex·Claude Code 세션의 완료 응답을 플로팅 카드로 표시합니다. 다른 앱과 전체 화면 Space에서도 보이며, **확인** 또는 **모두 확인**을 누를 때까지 유지됩니다. 패널을 원하는 모서리나 모니터로 드래그하면 위치를 기억합니다.
+여러 Codex·Claude Code 세션의 완료 응답을 플로팅 카드로 표시합니다. macOS에서 지정한 **메인 모니터**의 다른 앱과 전체 화면 Space에서도 보이며, **확인** 또는 **모두 확인**을 누를 때까지 유지됩니다. 메인 모니터 안에서 패널을 드래그하면 위치를 기억합니다. 다른 모니터에 저장된 이전 위치는 메인 모니터 안으로 옮기며, 메인 모니터 변경이나 모니터 연결 해제 시에도 위치를 다시 맞춥니다.
 
 카드에는 서비스, 터미널, 프로젝트, 세션 이름과 완료 시각이 표시됩니다. 프로젝트 이름이나 **세션 열기**를 누르면 원래 세션으로 이동합니다. 이동만으로 확인 처리하지는 않습니다. 새 알림과 15초 간격의 작은 움직임으로 완료를 알리며, macOS의 **동작 줄이기** 설정을 켜면 움직임을 생략합니다. 목록이 길면 스크롤할 수 있습니다.
 
@@ -8,21 +8,22 @@
 
 *실제 앱을 가상 세션으로 렌더링한 화면이며 계정·대화 데이터는 포함하지 않습니다.*
 
-## 서비스 연결
+## 자동 연결
 
 1. 이 빌드의 AiQuotaBar를 계속 사용할 위치에 설치하고 실행해 둡니다.
-2. 메뉴에서 **완료 알림 연결 → Codex / Claude Code → 연결…**을 선택합니다.
-3. 대화 상자의 설정 파일 경로를 확인한 뒤 **연결**을 누릅니다.
-4. 새 에이전트 세션을 시작합니다. **Codex는 `/hooks`에서 추가된 AiQuotaBar 항목을 검토하고 신뢰해야 합니다.** 앱은 이 절차를 우회하지 않습니다.
-5. 응답이 끝나면 보통 약 2초 이내에 카드가 표시됩니다.
+2. 설치된 Codex·Claude Code CLI를 찾아 자동으로 연결합니다. 별도 메뉴 선택이나 설정 대화 상자는 없습니다.
+3. 새 에이전트 세션을 시작합니다. **Codex는 `/hooks`에서 추가된 AiQuotaBar 항목을 검토하고 신뢰해야 합니다.** 자동 등록과 Codex 자체의 신뢰 승인은 별개입니다.
+4. 응답이 끝나면 보통 약 2초 이내에 카드가 표시됩니다.
 
-`~/.codex/hooks.json` 또는 `~/.claude/settings.json`에 `SessionStart`, `UserPromptSubmit`, `Stop` 명령 훅을 추가합니다. 다른 도구의 훅과 기존 설정은 유지하며, 변경 전 파일을 같은 폴더의 `*.aiquotabar-backup-<id>`에 백업합니다. 연결을 반복해도 훅이 중복되지 않습니다. **연결 해제…**는 AiQuotaBar 훅만 제거하며, 이후 새 세션을 시작해야 적용됩니다.
+`~/.codex/hooks.json` 또는 `~/.claude/settings.json`에 `SessionStart`, `UserPromptSubmit`, `Stop` 명령 훅을 추가합니다. 다른 도구의 훅과 기존 설정은 유지하며, 변경 전 파일을 같은 폴더의 `*.aiquotabar-backup-<id>`에 백업합니다. 실행 시, 1분마다, **지금 새로고침**을 누를 때 확인하며 같은 설정은 다시 쓰거나 백업하지 않습니다. 설치되지 않은 CLI는 설정 파일도 만들지 않고 건너뛰며, 나중에 설치하면 다음 확인 때 연결합니다.
 
-설치된 앱 실행 파일이 훅을 처리하므로 Python·Node·추가 데몬은 필요하지 않습니다. AiQuotaBar를 종료해도 훅은 완료를 저장하며, 다음 실행 때 미확인 목록을 복원합니다. 앱 위치를 옮겼다면 연결을 다시 설정하세요. 앱을 삭제하기 전에는 연결을 해제하세요.
+잘못된 JSON, 심볼릭 링크 설정 파일, 전체 훅 비활성화 설정은 변경하지 않습니다. 연결 실패 시에만 메뉴에 **완료 알림 연결 확인…**이 표시됩니다. 미확인 카드가 없을 때 **완료 알림 보기**에서도 연결 상태를 확인할 수 있습니다. 자동 연결은 CLI를 설치하거나 계정에 로그인하지 않습니다.
+
+설치된 앱 실행 파일이 훅을 처리하므로 Python·Node·추가 데몬은 필요하지 않습니다. AiQuotaBar를 종료해도 훅은 완료를 저장하며, 다음 실행 때 미확인 목록을 복원합니다. 앱 위치를 옮겼다면 새 위치에서 실행하면 훅 경로도 자동 갱신됩니다. Codex의 신뢰 승인은 다시 필요할 수 있습니다. 앱을 삭제하기 전에는 연결을 해제하세요.
 
 ## 사용자 지정 프로필·에이전트 관리 앱
 
-메뉴에서는 **AiQuotaBar 실행 환경**의 `CODEX_HOME` / `CLAUDE_CONFIG_DIR`를 사용합니다. Finder는 셸의 환경 변수를 상속하지 않습니다. 별도 프로필을 사용하면 **에이전트를 실행하는 터미널에서** 아래 명령을 실행하세요.
+자동 연결에서는 **AiQuotaBar 실행 환경**의 `CODEX_HOME` / `CLAUDE_CONFIG_DIR`를 사용합니다. Finder는 셸의 환경 변수를 상속하지 않습니다. 별도 프로필을 사용하면 **에이전트를 실행하는 터미널에서** 아래 명령을 실행하세요.
 
 ```sh
 AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
@@ -30,7 +31,7 @@ AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
 "$AQB" --install-completion-hooks claude
 ```
 
-소스 설치라면 경로는 `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`입니다. 같은 환경에서 `--remove-completion-hooks codex` 또는 `--remove-completion-hooks claude`로 해제할 수 있습니다. 명령은 수정한 파일 경로를 출력합니다.
+소스 설치라면 경로는 `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`입니다. 같은 환경에서 `--remove-completion-hooks codex` 또는 `--remove-completion-hooks claude`로 해제할 수 있습니다. AiQuotaBar 훅만 제거하고 같은 폴더에 `*.aiquotabar-disabled` 표시 파일을 만들어 자동으로 다시 연결되지 않도록 합니다. 명시적으로 설치 명령을 다시 실행하면 자동 연결도 켜집니다. 설치·해제 후에는 새 세션을 시작하세요. 명령은 설정 파일 경로를 출력합니다.
 
 관리 앱이 매번 다시 생성하는 설정 파일에는 직접 연결하지 마세요. 해당 앱의 영구 훅 설정에서 위 세 이벤트에 `'<앱 실행 파일의 절대 경로>' --completion-hook codex` 또는 `claude`를 등록해야 합니다. 앱마다 프로필·훅 관리 방식이 다르므로 설치만으로 모든 관리 앱의 완료 감지가 자동 연결되지는 않습니다.
 
@@ -81,7 +82,7 @@ Codex에서 작업을 이어 가게 하는 Stop 훅을 사용한다면 확정된
 notify = ["/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar", "--notify-codex"]
 ```
 
-컨텍스트 수집을 위한 AiQuotaBar `SessionStart` / `UserPromptSubmit` 훅은 유지하고, 이 방식을 사용할 때는 AiQuotaBar의 `Stop` 항목을 제거하세요. 다른 도구가 `notify`를 쓰면 덮어쓰지 말고 별도 알림 스크립트에서 두 명령을 연결해야 합니다. AiQuotaBar는 `config.toml`을 자동 수정하지 않습니다. 동일 서비스·세션·turn ID의 중복 이벤트는 하나로 합칩니다.
+이 고급 연결 방식으로 바꾸기 전에 `--remove-completion-hooks codex`를 실행해 자동 연결이 `Stop` 훅을 다시 추가하지 않도록 하세요. notify 데이터 자체에 Codex 세션·turn 식별자가 있고 실행 환경에서 터미널 이동 대상을 수집합니다. 다른 도구가 `notify`를 쓰면 덮어쓰지 말고 별도 알림 스크립트에서 두 명령을 연결해야 합니다. AiQuotaBar는 `config.toml`을 자동 수정하지 않습니다. 동일 서비스·세션·turn ID의 중복 이벤트는 하나로 합칩니다.
 
 prompt ID가 없는 구버전 Claude는 `UserPromptSubmit`에서 기록한 토큰을 사용합니다. 세션 중간에 연결해 해당 훅을 받지 못한 경우 응답 해시로 대체하며, 같은 내용의 응답을 중복으로 판단할 수 있습니다.
 
@@ -94,6 +95,6 @@ prompt ID가 없는 구버전 Claude는 `UserPromptSubmit`에서 기록한 토�
 - **알림이 오지 않음:** 설정 경로, 새 세션 시작, Codex `/hooks` 신뢰 여부, 전체 훅 비활성화 여부를 확인하세요. 관리 앱과 같은 프로필에서 연결해야 합니다.
 - **바로 이동하지 못함:** **재개 명령 복사**를 사용하고 지원 표·자동화 권한·기존 탭 상태를 확인하세요. Herdr는 래퍼로 접속해야 합니다.
 - **저장 파일 오류:** 기존 파일을 조용히 초기화하지 않고 보존합니다. 앱을 종료하고 Notifications 폴더를 백업한 뒤 복구하세요.
-- **앱 이동·삭제:** 모든 프로필에서 훅 연결을 먼저 해제하세요. 미확인 데이터는 Notifications 폴더를 따로 삭제하기 전까지 남습니다.
+- **앱 이동:** 새 위치에서 실행하면 자동 연결한 프로필의 경로가 갱신됩니다. 사용자 지정 프로필은 CLI로 다시 연결하세요. **앱 삭제:** 모든 프로필에서 훅 연결을 먼저 해제하세요. 미확인 데이터는 Notifications 폴더를 따로 삭제하기 전까지 남습니다.
 
 공식 계약: [Codex 훅](https://learn.chatgpt.com/docs/hooks), [Claude Code 훅](https://code.claude.com/docs/en/hooks), [cmux CLI](https://cmux.com/docs/api), [Orca CLI](https://www.onorca.dev/docs/cli/reference), [Herdr CLI](https://herdr.dev/docs/cli-reference/), [Herdr 소켓 API](https://herdr.dev/docs/socket-api/).

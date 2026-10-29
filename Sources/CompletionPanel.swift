@@ -85,11 +85,14 @@ final class CompletionCard: NSView {
     private var pulse: Timer?
     private var observers: [NSObjectProtocol] = []
     private var count = 0
+    private let primaryVisibleFrame: () -> NSRect?
+    private var positioning = false
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
     var onAcknowledgeAll: (() -> Void)?
 
-    override init() {
+    init(primaryVisibleFrame: @escaping () -> NSRect? = { NSScreen.screens.first?.visibleFrame }) {
+        self.primaryVisibleFrame = primaryVisibleFrame
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 390, height: 260), styleMask: [.titled, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: false)
         dismissAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), action: {})
         super.init()
@@ -162,12 +165,15 @@ final class CompletionCard: NSView {
 
     func showError(_ message: String?) {
         errorLabel.stringValue = message ?? ""
-        if message != nil { panel.orderFrontRegardless() }
+        if message != nil { position(); panel.orderFrontRegardless() }
     }
 
     private func position() {
-        guard let screen = panel.screen ?? NSScreen.main else { return }
-        let visible = screen.visibleFrame.insetBy(dx: 12, dy: 12)
+        // NSScreen.main follows keyboard focus; screens.first is macOS's primary display.
+        guard !positioning, let screenFrame = primaryVisibleFrame() else { return }
+        positioning = true
+        defer { positioning = false }
+        let visible = screenFrame.insetBy(dx: 12, dy: 12)
         let height = min(visible.height, CGFloat(min(count, 3)) * 165 + 100)
         let saved = UserDefaults.standard.bool(forKey: "completionPanelMoved")
         let old = panel.frame
@@ -179,6 +185,7 @@ final class CompletionCard: NSView {
 
     func windowDidMove(_ notification: Notification) {
         if NSEvent.pressedMouseButtons != 0 { UserDefaults.standard.set(true, forKey: "completionPanelMoved") }
+        if let primary = primaryVisibleFrame(), !primary.contains(panel.frame) { position() }
     }
 
     private func animate() {

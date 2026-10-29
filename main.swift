@@ -24,6 +24,7 @@ if CommandLine.arguments.contains("--help") {
     guard let name = argument(after: remove ? "--remove-completion-hooks" : "--install-completion-hooks"), let provider = Provider(rawValue: name), let executable = Bundle.main.executableURL?.path else { exit(64) }
     do {
         try HookInstaller.install(provider, executable: executable, remove: remove)
+        try HookInstaller.setAutomaticConnection(!remove, configuration: HookInstaller.configurationURL(provider))
         print(HookInstaller.configurationURL(provider).path)
         if !remove { print(L10n.text("새 세션을 시작하세요. Codex는 /hooks에서 추가된 항목을 검토하고 신뢰해야 합니다.", "Start a new session. In Codex, review and trust the added entries in /hooks.")) }
     } catch { fputs("AiQuotaBar: \(error.localizedDescription)\n", stderr); exit(1) }

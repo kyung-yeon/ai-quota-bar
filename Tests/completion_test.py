@@ -107,6 +107,9 @@ class CompletionIntegrationTests(unittest.TestCase):
         self.assertEqual(json.loads(backups[0].read_text()), original)
         self.assertEqual(self.configure("--remove-completion-hooks").returncode, 0)
         self.assertEqual(json.loads(file.read_text()), original)
+        self.assertTrue((self.directory / "settings.json.aiquotabar-disabled").exists())
+        self.assertEqual(self.configure("--install-completion-hooks").returncode, 0)
+        self.assertFalse((self.directory / "settings.json.aiquotabar-disabled").exists())
 
     def test_invalid_and_disabled_configuration_is_not_rewritten(self):
         file = self.directory / "settings.json"

@@ -1,5 +1,19 @@
 import Foundation
 
+enum HookConnectionState: Equatable {
+    case notInstalled, disconnected, configured, failed(String)
+
+    var hasError: Bool { if case .failed = self { return true }; return false }
+    var description: String {
+        switch self {
+        case .notInstalled: return L10n.text("설치 필요", "Install required")
+        case .disconnected: return L10n.text("자동 연결 꺼짐", "Automatic connection off")
+        case .configured: return L10n.text("알림 설정 등록됨", "Notification settings registered")
+        case .failed(let message): return message
+        }
+    }
+}
+
 enum HookInstallationError: Error, LocalizedError {
     case invalidConfiguration, symbolicLink, hooksDisabled
     var errorDescription: String? {
@@ -14,6 +28,32 @@ enum HookInstallationError: Error, LocalizedError {
 enum HookInstaller {
     static let flag = "--completion-hook"
     static let events = ["SessionStart", "UserPromptSubmit", "Stop"]
+    static func setAutomaticConnection(_ enabled: Bool, configuration: URL) throws {
+        let marker = configuration.appendingPathExtension("aiquotabar-disabled")
+        if enabled {
+            if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+        } else {
+            try Data("Automatic AiQuotaBar connection disabled for this profile.\n".utf8).write(to: marker, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
+        }
+    }
+
+    static func connectAvailable(executable: String, environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 isInstalled: (Provider) -> Bool = { (try? CLIPaths.executable(for: $0)) != nil }) -> [Provider: HookConnectionState] {
+        var states: [Provider: HookConnectionState] = [:]
+        for provider in Provider.allCases {
+            let configuration = configurationURL(provider, environment: environment)
+            if FileManager.default.fileExists(atPath: configuration.appendingPathExtension("aiquotabar-disabled").path) {
+                states[provider] = .disconnected; continue
+            }
+            guard isInstalled(provider) else { states[provider] = .notInstalled; continue }
+            do {
+                try install(provider, executable: executable, configuration: configuration)
+                states[provider] = .configured
+            } catch { states[provider] = .failed(error.localizedDescription) }
+        }
+        return states
+    }
 
     static func configurationURL(_ provider: Provider, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -34,18 +74,22 @@ enum HookInstaller {
         for event in events {
             if let value = hooks[event], !(value is [[String: Any]]) { throw HookInstallationError.invalidConfiguration }
             var groups = hooks[event] as? [[String: Any]] ?? []
+            let command = "\(SessionNavigator.shellQuote(executable)) \(flag) \(provider.rawValue)"
+            var found = false
             groups = try groups.compactMap { group in
                 guard let handlers = group["hooks"] as? [[String: Any]] else { throw HookInstallationError.invalidConfiguration }
-                let kept = handlers.filter { handler in
-                    guard let command = handler["command"] as? String else { return true }
-                    return !owns(command, provider: provider)
+                let kept: [[String: Any]] = handlers.compactMap { handler in
+                    guard let existing = handler["command"] as? String, owns(existing, provider: provider) else { return handler }
+                    guard !remove, !found else { return nil }
+                    found = true
+                    // Preserve user choices such as enabled, matcher, timeout, and async.
+                    var updated = handler; updated["command"] = command; return updated
                 }
-                if kept.count == handlers.count { return group }
-                guard !kept.isEmpty else { return nil }
+                if kept.isEmpty && !handlers.isEmpty { return nil }
                 var copy = group; copy["hooks"] = kept; return copy
             }
-            if !remove {
-                groups.append(["hooks": [["type": "command", "command": "\(SessionNavigator.shellQuote(executable)) \(flag) \(provider.rawValue)", "timeout": 5]]])
+            if !remove && !found {
+                groups.append(["hooks": [["type": "command", "command": command, "timeout": 5]]])
             }
             if groups.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = groups }
         }

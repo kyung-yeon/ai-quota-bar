@@ -1,6 +1,6 @@
 # Completion notifications
 
-AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards float above other apps, appear across Spaces (including full-screen spaces), and remain until you choose **Dismiss** or **Dismiss all**. Drag the panel to another corner or display; its position is remembered.
+AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards float above other apps on the macOS primary display, appear across Spaces (including full-screen spaces), and remain until you choose **Dismiss** or **Dismiss all**. Drag the panel within the primary display; its position is remembered. A previous position on another display is moved back, and changing the primary display or disconnecting a monitor repositions the panel.
 
 Each card shows the provider, terminal, project, session label, and completion time. Clicking the project or **Open session** targets the original session. Opening a session does **not** dismiss its card. New cards animate briefly, with a small reminder every 15 seconds; macOS **Reduce motion** disables these movements. Longer lists scroll.
 
@@ -8,21 +8,22 @@ Each card shows the provider, terminal, project, session label, and completion t
 
 *Rendered from the app using fictional sessions, with no account or conversation data.*
 
-## Connect a provider
+## Automatic connection
 
 1. Install this build of AiQuotaBar in its permanent location and keep it running.
-2. Open **Completion notifications → Codex / Claude Code → Connect…** in its menu.
-3. Review the configuration path in the dialog and choose **Connect**.
-4. Start a new agent session. In Codex, open `/hooks` and review and trust the new AiQuotaBar hooks. AiQuotaBar never bypasses Codex's hook trust.
-5. Complete a response. The floating card normally appears within about two seconds.
+2. Installed Codex and Claude Code CLIs are connected automatically, without a menu action or setup dialog.
+3. Start a new agent session. In Codex, open `/hooks` and review and trust the new AiQuotaBar hooks. Automatic registration does not grant Codex's separate hook trust.
+4. Complete a response. The floating card normally appears within about two seconds.
 
-The app adds `SessionStart`, `UserPromptSubmit`, and `Stop` command hooks to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Repeating setup does not add duplicate hooks. **Disconnect…** removes only AiQuotaBar hooks; start a new agent session afterward.
+The app adds `SessionStart`, `UserPromptSubmit`, and `Stop` command hooks to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Checks run at launch, once a minute, and on **Refresh now**. Unchanged settings are not rewritten or backed up again. Missing CLIs are skipped, including configuration creation; installing them later is detected on the next check.
 
-The hook executable is the installed app itself; no Python, Node, or extra daemon is required. Hooks save events even while AiQuotaBar is closed. The next launch restores the unread list. Moving the app requires reconnecting the hooks so their executable path is updated. Disconnect before deleting the app.
+Invalid JSON, symbolic-link configuration files, and globally disabled hooks are left intact. **Check notification connection…** appears in the menu when a connection fails. **Show completions** also explains connection status when there are no unread cards. Automatic connection does not install a CLI or sign into an account.
+
+The hook executable is the installed app itself; no Python, Node, or extra daemon is required. Hooks save events even while AiQuotaBar is closed. The next launch restores the unread list. After moving the app, launch it from the new location to update hook paths automatically; Codex may require trust review again. Disconnect before deleting the app.
 
 ### Custom profiles and agent managers
 
-The menu uses `CODEX_HOME` / `CLAUDE_CONFIG_DIR` from **AiQuotaBar's launch environment**. Finder does not inherit shell exports. In a custom profile, run the following **from the terminal that launches the agent**, using your installed app path:
+Automatic setup uses `CODEX_HOME` / `CLAUDE_CONFIG_DIR` from **AiQuotaBar's launch environment**. Finder does not inherit shell exports. In a custom profile, run the following **from the terminal that launches the agent**, using your installed app path:
 
 ```sh
 AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
@@ -30,7 +31,7 @@ AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
 "$AQB" --install-completion-hooks claude
 ```
 
-For a source installation, use `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`. To disconnect a profile, use `--remove-completion-hooks codex` or `--remove-completion-hooks claude` in the same environment. The command prints the file it changed. Do not run it against a manager's generated configuration if that manager recreates the file; use that manager's persistent hook settings instead, with the command `'<absolute app executable>' --completion-hook codex` (or `claude`) for the three events above.
+For a source installation, use `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`. To disconnect a profile, use `--remove-completion-hooks codex` or `--remove-completion-hooks claude` in the same environment. This removes only AiQuotaBar hooks and writes a sibling `*.aiquotabar-disabled` marker so automatic checks do not reconnect that profile. An explicit install command re-enables it. Start a new agent session after either change. The command prints the configuration path. Do not run it against a manager's generated configuration if that manager recreates the file; use that manager's persistent hook settings instead, with the command `'<absolute app executable>' --completion-hook codex` (or `claude`) for the three events above.
 
 Session names use `AIQUOTABAR_SESSION_NAME` when set before starting the agent, then an event-supplied session name, then a short session identifier. Example:
 
@@ -77,7 +78,7 @@ For Codex workflows with continuation hooks, prefer the finalized [`agent-turn-c
 notify = ["/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar", "--notify-codex"]
 ```
 
-Keep the `SessionStart` / `UserPromptSubmit` AiQuotaBar hooks for context, and remove its `Stop` entry when using finalized notifications. If another tool owns `notify`, chain the commands in your own notifier rather than replacing it. AiQuotaBar never rewrites `config.toml`. Hook and notify deliveries with the same provider/session/turn ID are deduplicated. Older Claude releases without a prompt ID use the token recorded at `UserPromptSubmit`; connecting mid-session without that hook falls back to a response hash and can collapse identical responses.
+Before switching to this advanced integration, run `--remove-completion-hooks codex` so automatic checks do not restore the `Stop` hook. The notify payload itself supplies Codex session and turn identity, and its process environment supplies the terminal destination. If another tool owns `notify`, chain the commands in your own notifier rather than replacing it. AiQuotaBar never rewrites `config.toml`. Hook and notify deliveries with the same provider/session/turn ID are deduplicated. Older Claude releases without a prompt ID use the token recorded at `UserPromptSubmit`; connecting mid-session without that hook falls back to a response hash and can collapse identical responses.
 
 ## Local data and troubleshooting
 
@@ -86,6 +87,6 @@ Keep the `SessionStart` / `UserPromptSubmit` AiQuotaBar hooks for context, and r
 - **No cards:** check the configuration path, start a new session, review Codex `/hooks`, and ensure hooks are not globally disabled. Test from the same profile used by the agent manager.
 - **No direct navigation:** use **Copy resume**; check the table above, Automation permissions, and whether the original tab still exists. For Herdr, attach through `--run-herdr`.
 - **Store error:** AiQuotaBar preserves an unreadable file rather than silently resetting it. Quit the app and back up the Notifications folder before repairing it.
-- **Moving/uninstalling:** disconnect hooks in every profile first. Unread metadata remains until you separately remove the Notifications folder.
+- **Moving:** launch from the new location to update the automatic profile; reconnect custom profiles with the CLI. **Uninstalling:** disconnect hooks in every profile first. Unread metadata remains until you separately remove the Notifications folder.
 
 Official contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude Code hooks](https://code.claude.com/docs/en/hooks), [cmux CLI](https://cmux.com/docs/api), [Orca CLI](https://www.onorca.dev/docs/cli/reference), [Herdr CLI](https://herdr.dev/docs/cli-reference/), [Herdr socket API](https://herdr.dev/docs/socket-api/).

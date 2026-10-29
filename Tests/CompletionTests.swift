@@ -51,6 +51,41 @@ func completionTests() throws {
     let removed = try HookInstaller.merged(installed, provider: .claude, executable: "/unused", remove: true)
     let restored = try JSONSerialization.jsonObject(with: removed) as! NSDictionary
     try expect(restored == configuration as NSDictionary, "Uninstall preserves unrelated settings and hooks")
+    let customized: [String: Any] = ["hooks": ["Stop": [["matcher": "custom", "hooks": [["type": "command",
+        "command": "'/old/AiQuotaBar' --completion-hook codex", "enabled": false, "timeout": 9]]]]]]
+    let relocated = try HookInstaller.merged(JSONSerialization.data(withJSONObject: customized), provider: .codex,
+        executable: "/new/AiQuotaBar", remove: false)
+    let relocatedRoot = try JSONSerialization.jsonObject(with: relocated) as! [String: Any]
+    let stopGroups = (relocatedRoot["hooks"] as! [String: Any])["Stop"] as! [[String: Any]]
+    let stopHandler = (stopGroups[0]["hooks"] as! [[String: Any]])[0]
+    try expect(stopGroups[0]["matcher"] as? String == "custom" && stopHandler["enabled"] as? Bool == false && stopHandler["timeout"] as? Int == 9,
+               "Automatic repair preserves explicitly disabled and customized AiQuotaBar hooks")
+    try expect(stopHandler["command"] as? String == "'/new/AiQuotaBar' --completion-hook codex", "Moving the app updates the hook executable path")
+    let profiles = directory.appendingPathComponent("profiles")
+    let codexConfiguration = profiles.appendingPathComponent("codex/hooks.json")
+    let claudeConfiguration = profiles.appendingPathComponent("claude/settings.json")
+    let environment = ["CODEX_HOME": codexConfiguration.deletingLastPathComponent().path,
+                       "CLAUDE_CONFIG_DIR": claudeConfiguration.deletingLastPathComponent().path]
+    let executable = "/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
+    let absent = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in false })
+    try expect(absent.values.allSatisfy { $0 == .notInstalled } && !FileManager.default.fileExists(atPath: profiles.path), "Missing CLIs do not create configuration files")
+    let connected = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in true })
+    try expect(connected.values.allSatisfy { $0 == .configured }, "Newly installed CLIs are connected on the next check")
+    let first = try Data(contentsOf: codexConfiguration)
+    _ = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in true })
+    try expect(try Data(contentsOf: codexConfiguration) == first, "Repeated automatic connection does not rewrite hooks")
+    try expect(try FileManager.default.contentsOfDirectory(atPath: codexConfiguration.deletingLastPathComponent().path) == ["hooks.json"], "Unchanged automatic checks create no backups")
+    try Data("invalid".utf8).write(to: codexConfiguration)
+    let partial = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in true })
+    try expect(partial[.codex]?.hasError == true && partial[.claude] == .configured, "One broken configuration does not prevent the other provider connecting")
+    try expect(try String(contentsOf: codexConfiguration, encoding: .utf8) == "invalid", "Automatic connection preserves invalid configuration")
+    try HookInstaller.setAutomaticConnection(false, configuration: codexConfiguration)
+    let disconnected = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in true })
+    try expect(disconnected[.codex] == .disconnected, "An explicitly disconnected profile is not automatically reconnected")
+    try Data("{}".utf8).write(to: codexConfiguration)
+    try HookInstaller.setAutomaticConnection(true, configuration: codexConfiguration)
+    let reconnected = HookInstaller.connectAvailable(executable: executable, environment: environment, isInstalled: { _ in true })
+    try expect(reconnected[.codex] == .configured, "Explicitly reconnecting re-enables automatic updates")
     for target in [SessionDestination(host: .warp, target:"https://evil.example"), SessionDestination(host: .warp, target:"warp://session/abc?command=oops"), SessionDestination(host: .orca, target:"--help"), SessionDestination(host: .kitty, target:"1", socket:"tcp:evil:123") ] {
         do { try SessionNavigator.validate(target); try expect(false, "Unsafe navigation target rejected") }
         catch CompletionError.unsupported { count += 1 }
