@@ -25,7 +25,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 
 ## Install from DMG
 
-**[Download AiQuotaBar for macOS](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v2.0.0/AiQuotaBar-2.0.0-universal.dmg)** · [All releases and checksums](https://github.com/kyung-yeon/ai-quota-bar/releases)
+**[Download AiQuotaBar for macOS](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v0.1.0/AiQuotaBar-0.1.0-universal.dmg)** · [All releases and checksums](https://github.com/kyung-yeon/ai-quota-bar/releases)
 
 1. Open the DMG and drag **AiQuotaBar.app** onto **Applications**.
 2. Eject the DMG, then open AiQuotaBar from Applications.
@@ -116,7 +116,7 @@ Build a distributable DMG:
 make dmg
 ```
 
-This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-2.0.0-universal.dmg` with its `.dmg.sha256` checksum. The build verifies the disk image, mounts it read-only, checks both executable architectures and the app signature, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`; installation guides are in `Docs/`.
+This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-0.1.0-universal.dmg` with its `.dmg.sha256` checksum. The build verifies the disk image, mounts it read-only, checks both executable architectures and the app signature, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`; installation guides are in `Docs/`.
 
 ## Stop automatic launch or uninstall
 

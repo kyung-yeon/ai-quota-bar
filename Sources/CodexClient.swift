@@ -34,7 +34,7 @@ enum CodexClient {
             data.append(10)
             try input.fileHandleForWriting.write(contentsOf: data)
         }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "ai_quota_bar", "version": "2.0.0"], "capabilities": [:]]])
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "ai_quota_bar", "version": "0.1.0"], "capabilities": [:]]])
         var buffer = Data()
         let deadline = ProcessInfo.processInfo.systemUptime + 30
         let fd = output.fileHandleForReading.fileDescriptor
