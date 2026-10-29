@@ -9,7 +9,7 @@ func argument(after flag: String) -> String? {
 signal(SIGPIPE, SIG_IGN)
 L10n.languageOverride = argument(after: "--language")
 if CommandLine.arguments.contains("--self-test") {
-    do { try selfTest() } catch { fputs("\(error)\n", stderr); exit(1) }
+    do { try selfTest(); try completionTests() } catch { fputs("\(error)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--check") {
     Task.detached {
         await withTaskGroup(of: (Provider, Result<QuotaSnapshot, ProviderFailure>).self) { group in
