@@ -15,6 +15,7 @@ Codex와 Claude Code 사용량을 함께 확인하는 macOS 메뉴 막대 앱입
 - Codex에서 제공하는 초기화권 개수와 각 유효기간을 표시합니다.
 - 서비스별로 **설치 필요**, **로그인 필요** 상태를 구분합니다.
 - 5분마다, 잠자기 해제 시, 또는 **⌘R**로 갱신합니다.
+- 여러 Codex·Claude Code 세션의 완료를 유지되는 플로팅 카드와 애니메이션으로 알리고, 세션 이동·개별 확인·모두 확인을 제공합니다. 소스 빌드 기능이며 기존 v0.1.0 DMG에는 포함되지 않습니다.
 - macOS의 첫 번째 선호 언어가 한국어이면 한국어, 그 외에는 영어를 사용합니다. 날짜는 선택된 언어와 현재 시간대를 따릅니다. 시스템 언어를 변경한 뒤에는 앱을 다시 실행해 주세요.
 
 ## 준비 사항
@@ -81,6 +82,14 @@ open dist/AiQuotaBar.app
 
 표준 Homebrew 경로, `~/.local/bin`, 실행 환경의 `PATH`, nvm의 Node 설치 경로, `~/.claude/local/claude`를 확인합니다. 로컬 패키징은 빌드할 때 발견한 CLI 경로도 기록하지만 배포용 DMG에는 제작한 Mac의 경로를 넣지 않습니다. 다른 경로에 설치했다면 해당 CLI가 `PATH`에 포함된 터미널에서 빌드하세요. 사용자 지정 계정 설정에 필요한 환경 변수는 앱 실행 환경에도 전달해야 합니다. Finder는 셸 설정을 자동으로 상속하지 않습니다.
 
+## 완료 알림
+
+메뉴의 **완료 알림 연결**에서 서비스를 연결하고 새 세션을 시작하세요. Codex는 `/hooks`에서 새 훅을 검토하고 신뢰해야 합니다. 프로젝트·세션·완료 시각이 표시된 카드는 확인할 때까지 유지되며 앱 재실행 후에도 복원됩니다. 세션을 열기만 해서는 확인 처리하지 않습니다.
+
+Terminal, iTerm2, Warp, cmux, Orca, WezTerm, 설정된 kitty 세션의 직접 이동을 구현했습니다. Herdr는 바깥 터미널을 정확히 찾기 위한 접속 래퍼가 필요합니다. 지원하지 않거나 닫힌 탭은 재개 명령을 복사할 수 있습니다. 연결 설정은 기존 훅을 보존하고 백업하며, 사용자가 연결을 선택하기 전에는 프로필을 변경하지 않습니다.
+
+버전·환경별 조건, Herdr 접속, 사용자 지정 프로필, 완료의 의미와 데이터 보관 방식은 [완료 알림 가이드](Docs/Notifications.ko.md)를 참고하세요. 이 기능은 소스 빌드에 포함되며, 공개된 v0.1.0 DMG에는 아직 포함되지 않았습니다.
+
 ## 초기화권과 데이터 출처
 
 **Codex:** `codex app-server --stdio`의 `account/read`, `account/rateLimits/read`를 사용합니다. 초기화권 수는 서버의 전체 개수를 기준으로 하며 세부 목록은 일부만 제공될 수 있습니다. 만료되거나 사용한 초기화권은 유효기간 목록에서 제외합니다. 날짜를 제공하지 않으면 그 상태를 표시하고, 유효기간이 null인 권한은 만료 제한 없음으로 표시합니다. 초기화권을 조회만 하며 사용하지 않습니다. [공식 app-server 문서](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)를 참고하세요.
@@ -99,6 +108,7 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 ./build/AiQuotaBar --smoke-test     # 메뉴 막대 생성·조회·상태 출력 후 종료
 ./build/AiQuotaBar --self-test --language en
 ./build/AiQuotaBar --self-test --language ko
+./build/AiQuotaBar --completion-ui-test --language ko  # 샘플 UI·저장 검증, 실제 에이전트 호출 없음
 ```
 
 샘플 데이터로 화면을 렌더링할 수 있습니다. 아래 화면의 수치는 실제 계정 사용량이 아닙니다.
@@ -106,9 +116,11 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 ```sh
 ./build/AiQuotaBar --preview-demo --language en --preview /tmp/aiquota-en.png
 ./build/AiQuotaBar --preview-demo --language ko --dark --preview /tmp/aiquota-ko.png
+./build/AiQuotaBar --preview-completions /tmp/completions-en.png --language en
+./build/AiQuotaBar --preview-completions /tmp/completions-ko.png --language ko --dark
 ```
 
-구현: `Sources/` · 테스트: `Tests/` · 진입점: `main.swift` · 패키징: `package.py` · 설치: `install.py`.
+구현: `Sources/` · 테스트: `Tests/` · 진입점: `main.swift` · 패키징: `package.py` · 설치: `install.py`. 세션 수명 테스트는 임시 로컬 Unix 소켓을 사용하며, UI 테스트에는 로그인된 macOS 데스크톱 세션이 필요합니다.
 
 배포용 DMG를 만들려면:
 
@@ -119,6 +131,8 @@ make dmg
 두 아키텍처를 빌드해 `dist/AiQuotaBar-0.1.0-universal.dmg`와 `.dmg.sha256` 체크섬을 생성합니다. 압축 전에 Finder로 창 크기·배경·아이콘 위치를 저장하므로 로그인된 macOS 데스크톱 세션에서 실행하세요. macOS가 요청하면 터미널의 Finder 제어를 허용합니다. 디스크 이미지 검증, 읽기 전용 마운트, 두 아키텍처·앱 서명·저장된 배치 확인, 마운트된 앱의 오프라인 테스트, 디스크 추출까지 수행하며 앱을 설치하거나 메뉴 막대에 실행하지 않습니다. 배포 패키징은 `dmg.py`, 배치 도구는 `Tools/`, 설치 안내는 `Docs/`에 있습니다.
 
 ## 자동 실행 해제 및 삭제
+
+완료 알림을 연결했다면 앱을 삭제하기 전에 **완료 알림 연결 → 연결 해제…**를 서비스·사용자 지정 프로필마다 실행하세요. 미확인 알림 메타데이터는 `~/Library/Application Support/AiQuotaBar/Notifications/`에 별도로 남습니다.
 
 **AiQuotaBar 종료**는 현재 실행만 종료합니다. 다음 로그인에서도 실행하지 않으려면:
 

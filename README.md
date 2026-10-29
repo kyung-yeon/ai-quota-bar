@@ -15,6 +15,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 - Available Codex reset passes with individual expiration dates, when the service supplies them.
 - Independent **Install required** and **Sign in required** states for each provider.
 - Refresh every five minutes, on wake, or manually with **⌘R**.
+- Persistent floating completion cards for multiple Codex / Claude Code sessions, with animation, session navigation, and individual or bulk dismissal (source builds; not included in the v0.1.0 DMG).
 - Korean when your Mac's primary preferred language is Korean; English otherwise. Dates follow the selected language and your local time zone. Restart the app after changing the system language.
 
 ## Requirements
@@ -81,6 +82,14 @@ Install either CLI using its official guide above, complete its login flow, then
 
 The app searches standard Homebrew paths, `~/.local/bin`, the launch environment's `PATH`, nvm Node installations, and `~/.claude/local/claude`. Local packaging also records CLI paths found during the build; the portable DMG omits build-machine paths. For a custom installation, build from a terminal whose `PATH` contains the CLI. Environment variables used by a custom account setup must also be supplied to the app's launch environment; Finder does not inherit your shell configuration.
 
+## Completion notifications
+
+Connect each provider from **Completion notifications** in the menu, then start a new session. Codex requires reviewing the new hooks in `/hooks`. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
+
+Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets offer a copyable resume command. Setup preserves existing hooks and saves backups; it does not connect providers until you choose to do so.
+
+See the [completion notification guide](Docs/Notifications.md) for supported versions and environments, Herdr setup, custom profiles, completion semantics, and local data retention. This feature is available in source builds and is not yet in the published v0.1.0 DMG.
+
 ## Reset passes and data sources
 
 **Codex:** Uses `codex app-server --stdio`, `account/read`, and `account/rateLimits/read`. The server's available pass count is authoritative; detailed rows can be incomplete. Expired and redeemed passes are excluded from the expiration list. Missing dates are shown explicitly, and a pass with a null expiration is displayed as having no expiration. The app displays passes only; it never redeems them. See the [official app-server protocol](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt).
@@ -99,6 +108,7 @@ make check                        # Live, read-only quota checks
 ./build/AiQuotaBar --smoke-test     # Create a real menu bar item, fetch, print status, exit
 ./build/AiQuotaBar --self-test --language en
 ./build/AiQuotaBar --self-test --language ko
+./build/AiQuotaBar --completion-ui-test --language en  # Sample UI + persistence; no live agent calls
 ```
 
 Render sample UI for visual checks; these values are fixtures, not live usage:
@@ -106,9 +116,11 @@ Render sample UI for visual checks; these values are fixtures, not live usage:
 ```sh
 ./build/AiQuotaBar --preview-demo --language en --preview /tmp/aiquota-en.png
 ./build/AiQuotaBar --preview-demo --language ko --dark --preview /tmp/aiquota-ko.png
+./build/AiQuotaBar --preview-completions /tmp/completions-en.png --language en
+./build/AiQuotaBar --preview-completions /tmp/completions-ko.png --language ko --dark
 ```
 
-Implementation: `Sources/` · tests: `Tests/` · entry point: `main.swift` · packaging: `package.py` · installation: `install.py`.
+Implementation: `Sources/` · tests: `Tests/` · entry point: `main.swift` · packaging: `package.py` · installation: `install.py`. Completion lifetime tests use a temporary local Unix socket; UI tests need a logged-in macOS desktop session.
 
 Build a distributable DMG:
 
@@ -119,6 +131,8 @@ make dmg
 This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-0.1.0-universal.dmg` with its `.dmg.sha256` checksum. The build uses Finder to save the window size, background, and icon positions before compressing the image, so run it in a logged-in macOS desktop session. Allow your terminal to control Finder if macOS asks. The build verifies the disk image, mounts it read-only, checks both executable architectures, the app signature, and the saved layout, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`, layout tools in `Tools/`, and installation guides in `Docs/`.
 
 ## Stop automatic launch or uninstall
+
+If completion hooks are connected, choose **Completion notifications → Disconnect…** for each provider and custom profile before deleting the app. Unread completion metadata is stored separately in `~/Library/Application Support/AiQuotaBar/Notifications/`.
 
 Choose **Quit AiQuotaBar** to end the current session. It will run again at the next login unless you disable the login item:
 

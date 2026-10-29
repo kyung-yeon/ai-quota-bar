@@ -37,6 +37,9 @@ class PackageTests(unittest.TestCase):
             self.assertEqual((resources / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
             self.assertTrue((resources / "source/dmg.py").is_file())
             self.assertTrue((resources / "Assets/screenshots/aiquotabar-preview.png").is_file())
+            self.assertTrue((resources / "ko.lproj/InfoPlist.strings").is_file())
+            self.assertTrue((resources / "Documentation/Notifications.md").is_file())
+            self.assertTrue((resources / "source/Resources/en.lproj/InfoPlist.strings").is_file())
 
     def test_missing_binary_does_not_remove_existing_bundle(self):
         packager = self.load_packager()

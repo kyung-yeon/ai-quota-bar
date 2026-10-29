@@ -49,7 +49,7 @@ if CommandLine.arguments.contains("--help") {
         try store.receive(Data(payload.utf8), provider: .codex, environment: env)
     } catch { fputs("AiQuotaBar: \(error.localizedDescription)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--self-test") {
-    do { try selfTest(); try completionTests() } catch { fputs("\(error)\n", stderr); exit(1) }
+    do { try selfTest(); try completionTests(); try navigationTests() } catch { fputs("\(error)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--check") {
     Task.detached {
         await withTaskGroup(of: (Provider, Result<QuotaSnapshot, ProviderFailure>).self) { group in
@@ -76,7 +76,9 @@ if CommandLine.arguments.contains("--help") {
     MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    if let path = argument(after: "--preview-completions") {
+    if CommandLine.arguments.contains("--completion-ui-test") {
+        do { try completionUITests() } catch { fputs("\(error)\n", stderr); exit(1) }
+    } else if let path = argument(after: "--preview-completions") {
         Preview.completions(path: path)
     } else if CommandLine.arguments.contains("--preview-demo"), let path = argument(after: "--preview") {
         Preview.write(states: Preview.sampleStates(), path: path)
