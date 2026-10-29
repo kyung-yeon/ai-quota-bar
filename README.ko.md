@@ -19,9 +19,23 @@ Codex와 Claude Code 사용량을 함께 확인하는 macOS 메뉴 막대 앱입
 
 ## 준비 사항
 
-- macOS 13 이상
-- Swift, Python 3, `make`가 포함된 Xcode Command Line Tools
+- Apple Silicon 또는 Intel Mac의 macOS 13 이상
+- 소스에서 빌드할 때만 Swift, Python 3, `make`가 포함된 Xcode Command Line Tools가 필요합니다. DMG 설치에는 필요하지 않습니다.
 - 사용량을 확인할 서비스의 [Codex CLI](https://developers.openai.com/codex/cli/) 또는 [Claude Code](https://code.claude.com/docs/en/quickstart) 설치 및 로그인. 두 서비스가 모두 없어도 앱은 실행됩니다.
+
+## DMG로 설치
+
+**[macOS용 AiQuotaBar 다운로드](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v2.0.0/AiQuotaBar-2.0.0-universal.dmg)** · [전체 릴리스 및 체크섬](https://github.com/kyung-yeon/ai-quota-bar/releases)
+
+1. DMG를 열고 **AiQuotaBar.app**을 **Applications**로 드래그합니다.
+2. DMG를 추출한 뒤 응용 프로그램에서 AiQuotaBar를 실행합니다.
+3. 메뉴 막대의 아이콘을 클릭해 사용량을 확인합니다. Dock에는 표시되지 않습니다.
+
+하나의 DMG에 Apple Silicon·Intel 실행 파일과 영문·한국어 설치 안내가 들어 있습니다. 로그인할 때 실행하려면 **시스템 설정 → 일반 → 로그인 항목 → 로그인 시 열기**에 설치된 앱을 추가하세요. 드래그 설치는 자동 실행을 등록하지 않습니다.
+
+**기존 설치 업데이트:** AiQuotaBar를 종료하고 기존 폴더의 앱을 교체하세요. `make install`로 설치했다면 `~/Applications/AiQuotaBar.app`을 그 위치에서 교체해야 기존 자동 실행이 유지됩니다. `/Applications`에 다른 사본을 만들지 마세요.
+
+**처음 실행할 때:** 이 배포본은 임시 서명을 사용하며 **Apple 공증을 받지 않았습니다**. macOS가 차단하면 먼저 이 프로젝트의 Releases에서 받은 파일인지 확인하세요. 배포본을 신뢰한다면 앱 실행을 시도한 뒤 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**를 이용할 수 있습니다. [Apple 안내](https://support.apple.com/ko-kr/102445)를 참고하세요.
 
 ## 소스에서 설치
 
@@ -50,7 +64,7 @@ make package
 open dist/AiQuotaBar.app
 ```
 
-개인 사용을 위한 로컬 서명을 적용하며 공개 배포용 공증은 하지 않습니다. 앱의 `Contents/Resources/source/`에도 수정 가능한 소스를 포함합니다.
+로컬 빌드에는 임시 서명을 적용합니다. 앱의 `Contents/Resources/source/`에도 수정 가능한 소스를 포함합니다.
 
 ## 계정 연결
 
@@ -65,7 +79,7 @@ open dist/AiQuotaBar.app
 | 갱신 필요 | 조회 결과가 15분 이상 지났거나 초기화 시각이 지났습니다. |
 | 연결 확인 필요 / 조회 시간 초과 | 네트워크를 확인한 뒤 다시 조회하세요. 다른 서비스는 독립적으로 동작합니다. |
 
-표준 Homebrew 경로, `~/.local/bin`, 실행 환경의 `PATH`, nvm의 Node 설치 경로, `~/.claude/local/claude`를 확인합니다. 빌드할 때 발견한 CLI 경로도 앱에 기록합니다. 다른 경로에 설치했다면 해당 CLI가 `PATH`에 포함된 터미널에서 빌드하세요. 사용자 지정 계정 설정에 필요한 환경 변수는 앱 실행 환경에도 전달해야 합니다. Finder는 셸 설정을 자동으로 상속하지 않습니다.
+표준 Homebrew 경로, `~/.local/bin`, 실행 환경의 `PATH`, nvm의 Node 설치 경로, `~/.claude/local/claude`를 확인합니다. 로컬 패키징은 빌드할 때 발견한 CLI 경로도 기록하지만 배포용 DMG에는 제작한 Mac의 경로를 넣지 않습니다. 다른 경로에 설치했다면 해당 CLI가 `PATH`에 포함된 터미널에서 빌드하세요. 사용자 지정 계정 설정에 필요한 환경 변수는 앱 실행 환경에도 전달해야 합니다. Finder는 셸 설정을 자동으로 상속하지 않습니다.
 
 ## 초기화권과 데이터 출처
 
@@ -95,6 +109,14 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 ```
 
 구현: `Sources/` · 테스트: `Tests/` · 진입점: `main.swift` · 패키징: `package.py` · 설치: `install.py`.
+
+배포용 DMG를 만들려면:
+
+```sh
+make dmg
+```
+
+두 아키텍처를 빌드해 `dist/AiQuotaBar-2.0.0-universal.dmg`와 `.dmg.sha256` 체크섬을 생성합니다. 디스크 이미지 검증, 읽기 전용 마운트, 두 아키텍처·앱 서명 확인, 마운트된 앱의 오프라인 테스트, 디스크 추출까지 수행하며 앱을 설치하거나 메뉴 막대에 실행하지 않습니다. 배포 패키징은 `dmg.py`, 설치 안내는 `Docs/`에 있습니다.
 
 ## 자동 실행 해제 및 삭제
 

@@ -19,9 +19,23 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 
 ## Requirements
 
-- macOS 13 or later.
-- Xcode Command Line Tools, including Swift, Python 3, and `make`.
+- macOS 13 or later, on Apple Silicon or Intel.
+- Xcode Command Line Tools, including Swift, Python 3, and `make`, only if building from source. The DMG does not require them.
 - A separately installed and signed-in [Codex CLI](https://developers.openai.com/codex/cli/) and/or [Claude Code](https://code.claude.com/docs/en/quickstart) to display that provider's quota. The app also runs when neither is installed.
+
+## Install from DMG
+
+**[Download AiQuotaBar for macOS](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v2.0.0/AiQuotaBar-2.0.0-universal.dmg)** · [All releases and checksums](https://github.com/kyung-yeon/ai-quota-bar/releases)
+
+1. Open the DMG and drag **AiQuotaBar.app** onto **Applications**.
+2. Eject the DMG, then open AiQuotaBar from Applications.
+3. Click its menu bar icons to see your usage. It does not appear in the Dock.
+
+The same DMG contains Apple Silicon and Intel executables, plus English and Korean installation guides. To start it at login, add the installed app under **System Settings → General → Login Items → Open at Login**. Drag-and-drop installation does not register a login item automatically.
+
+**Updating an existing installation:** quit AiQuotaBar and replace the app in its existing folder. If you previously used `make install`, replace `~/Applications/AiQuotaBar.app` there to preserve its login item. Avoid keeping another copy in `/Applications`.
+
+**First launch:** this release is ad-hoc signed and **not notarized by Apple**. If macOS blocks it, confirm the file came from this project's Releases page. If you trust the build, use **System Settings → Privacy & Security → Open Anyway** after trying to open it, following [Apple's instructions](https://support.apple.com/en-us/102445).
 
 ## Install from source
 
@@ -50,7 +64,7 @@ make package
 open dist/AiQuotaBar.app
 ```
 
-The app is signed locally for personal use. It is not notarized for public distribution. The bundle also includes editable source under `Contents/Resources/source/`.
+Local builds use an ad-hoc signature. The bundle also includes editable source under `Contents/Resources/source/`.
 
 ## Connect your accounts
 
@@ -65,7 +79,7 @@ Install either CLI using its official guide above, complete its login flow, then
 | Refresh required | The last result is older than 15 minutes, or its reset time has passed. |
 | Connection error / Request timed out | Check connectivity, then refresh. Other providers continue to work independently. |
 
-The app searches standard Homebrew paths, `~/.local/bin`, the launch environment's `PATH`, nvm Node installations, and `~/.claude/local/claude`. Packaging also records CLI paths found during the build. For a custom installation, build from a terminal whose `PATH` contains the CLI. Environment variables used by a custom account setup must also be supplied to the app's launch environment; Finder does not inherit your shell configuration.
+The app searches standard Homebrew paths, `~/.local/bin`, the launch environment's `PATH`, nvm Node installations, and `~/.claude/local/claude`. Local packaging also records CLI paths found during the build; the portable DMG omits build-machine paths. For a custom installation, build from a terminal whose `PATH` contains the CLI. Environment variables used by a custom account setup must also be supplied to the app's launch environment; Finder does not inherit your shell configuration.
 
 ## Reset passes and data sources
 
@@ -95,6 +109,14 @@ Render sample UI for visual checks; these values are fixtures, not live usage:
 ```
 
 Implementation: `Sources/` · tests: `Tests/` · entry point: `main.swift` · packaging: `package.py` · installation: `install.py`.
+
+Build a distributable DMG:
+
+```sh
+make dmg
+```
+
+This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-2.0.0-universal.dmg` with its `.dmg.sha256` checksum. The build verifies the disk image, mounts it read-only, checks both executable architectures and the app signature, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`; installation guides are in `Docs/`.
 
 ## Stop automatic launch or uninstall
 

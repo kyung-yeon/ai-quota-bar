@@ -1,0 +1,34 @@
+AiQuotaBar — Installation
+macOS 13 or later · Apple Silicon and Intel
+
+1. Drag AiQuotaBar.app onto the Applications shortcut.
+2. Eject this disk image.
+3. Open AiQuotaBar from Applications. Its icons appear in the menu bar, not the Dock.
+4. Install and sign in to Codex CLI and/or Claude Code, then choose Refresh now.
+
+No Swift compiler, Python, or Node.js is required to install AiQuotaBar itself.
+Each provider's CLI has its own requirements.
+
+Already using AiQuotaBar?
+Quit the running app first and replace the existing copy in its current folder.
+Source installations normally use ~/Applications. Replace that copy there to
+preserve its existing login item; do not create a second copy in /Applications.
+
+Open at login (optional)
+Open System Settings > General > Login Items (or Login Items & Extensions),
+and add AiQuotaBar to Open at Login. Drag-and-drop installation does not create
+a login item automatically.
+
+First launch
+This release uses a local ad-hoc signature and is not notarized by Apple.
+If macOS blocks it, first verify that you downloaded it from this project's
+GitHub Releases. If you trust this build, follow Apple's instructions to open it:
+https://support.apple.com/en-us/102445
+System Settings > Privacy & Security > Open Anyway may be available after
+attempting to open the app. Do not disable Gatekeeper globally.
+
+Project and updates
+https://github.com/kyung-yeon/ai-quota-bar
+
+To uninstall, quit AiQuotaBar, remove its login item if you added one, and move
+the installed app to the Trash. Your Codex and Claude accounts are unaffected.

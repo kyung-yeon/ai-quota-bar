@@ -1,18 +1,25 @@
 SWIFTC = xcrun swiftc
 CACHE = /tmp/aiquota-swift-cache
 SOURCES = $(wildcard Sources/*.swift) $(wildcard Tests/*.swift) main.swift
-TARGET = $(shell uname -m)-apple-macos13.0
+ARCH = $(shell uname -m)
 
-.PHONY: build test package check install
+.PHONY: build test package check install dmg
 build: build/AiQuotaBar
 
-build/AiQuotaBar: $(SOURCES) Makefile
-	mkdir -p build
-	$(SWIFTC) -target $(TARGET) -module-cache-path $(CACHE) $(SOURCES) -o $@ -framework AppKit -framework Security
+build/AiQuotaBar: build/$(ARCH)/AiQuotaBar
+	cp $< $@
+
+build/%/AiQuotaBar: $(SOURCES) Makefile
+	mkdir -p $(dir $@)
+	$(SWIFTC) -target $*-apple-macos13.0 -module-cache-path $(CACHE)/$* $(SOURCES) -o $@ -framework AppKit -framework Security
+
+build/universal/AiQuotaBar: build/arm64/AiQuotaBar build/x86_64/AiQuotaBar
+	mkdir -p $(dir $@)
+	xcrun lipo -create $^ -output $@
 
 test: build
 	./build/AiQuotaBar --self-test
-	python3 Tests/install_test.py
+	python3 -m unittest discover -s Tests -p '*_test.py'
 
 check: build
 	./build/AiQuotaBar --check
@@ -22,3 +29,6 @@ package: test
 
 install: package
 	python3 install.py
+
+dmg: test build/universal/AiQuotaBar
+	python3 dmg.py
