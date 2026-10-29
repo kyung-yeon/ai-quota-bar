@@ -5,6 +5,7 @@ struct CompletionState: Codable {
     var version = 1
     var events: [CompletionEvent] = []
     var contexts: [String: CompletionContext]?
+    var sessions: [String: LiveSession]?
     var unread: [CompletionEvent] { events.filter { $0.acknowledgedAt == nil }.sorted { $0.completedAt > $1.completedAt } }
 
     mutating func keepLatestPerSession(at now: Date = Date()) {
@@ -58,11 +59,27 @@ struct CompletionStore {
     func receive(_ data: Data, provider: Provider, environment: [String: String]) throws {
         guard data.count <= 1_048_576, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CompletionError.invalidEvent }
         let name = payload["hook_event_name"] as? String ?? ""
+        guard payload["agent_id"] == nil, !name.hasPrefix("Subagent") else { return }
         let session = (payload["session_id"] ?? payload["thread-id"]) as? String
         guard let session, CompletionEvent.validID(session) else { throw CompletionError.invalidEvent }
         let key = completionHash(provider.rawValue + "\u{0}" + session)
         let captured = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
         try update { state in
+            if name == "SessionEnd" { state.sessions?.removeValue(forKey: key); return }
+            let lifecycle = ["SessionStart", "UserPromptSubmit", "Stop", "Interrupt", "StopFailure"]
+            if lifecycle.contains(name), let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 {
+                let now = Date()
+                let event = CompletionEvent(id: key, providerID: provider.rawValue, sessionID: session,
+                    project: String(URL(fileURLWithPath: cwd).lastPathComponent.prefix(100)), directory: cwd,
+                    sessionName: String((environment["AIQUOTABAR_SESSION_NAME"] ?? payload["session_name"] as? String ?? String(session.prefix(12))).prefix(120)),
+                    completedAt: now, destination: captured)
+                var owner = state.sessions?[key]?.owner
+                if let pid = environment["AIQUOTABAR_OWNER_PID"].flatMap(Int32.init), let start = environment["AIQUOTABAR_OWNER_START"] {
+                    owner = SessionOwner(pid: pid, startedAt: start)
+                }
+                if state.sessions == nil { state.sessions = [:] }
+                state.sessions?[key] = LiveSession(event: event, activity: name == "UserPromptSubmit" ? .running : .idle, owner: owner, updatedAt: now)
+            }
             if name == "SessionStart" || name == "UserPromptSubmit" {
                 var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, updatedAt: Date())
                 if name == "UserPromptSubmit" { context.turn = payload["prompt_id"] as? String ?? UUID().uuidString }

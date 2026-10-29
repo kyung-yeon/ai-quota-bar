@@ -9,6 +9,10 @@ func completionTests() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("aiquota-completions-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = CompletionStore(directory: directory)
+    let lifecycle = CompletionStore(directory: directory.appendingPathComponent("lifecycle"))
+    try lifecycle.receive(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"live","cwd":"/project"}"#.utf8), provider: .codex, environment: [:])
+    let lifecycleJSON = try JSONSerialization.jsonObject(with: Data(contentsOf: lifecycle.file)) as! [String: Any]
+    try expect((lifecycleJSON["sessions"] as? [String: Any])?.count == 1, "A running session is tracked before its first completion")
     let payload = Data(#"{"type":"agent-turn-complete","thread-id":"session-a","turn-id":"turn-1","cwd":"/projects/example","last-assistant-message":"PRIVATE RESPONSE"}"#.utf8)
     let event = try CompletionEvent.decode(payload, provider: .codex, environment: ["ITERM_SESSION_ID": "w0t0p0:session-123"])
     try expect(event?.sessionID == "session-a", "Codex session identity")

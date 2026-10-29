@@ -27,7 +27,7 @@ enum HookInstallationError: Error, LocalizedError {
 
 enum HookInstaller {
     static let flag = "--completion-hook"
-    static let events = ["SessionStart", "UserPromptSubmit", "Stop"]
+    static let events = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
     static func setAutomaticConnection(_ enabled: Bool, configuration: URL) throws {
         let marker = configuration.appendingPathExtension("aiquotabar-disabled")
         if enabled {
@@ -71,7 +71,7 @@ enum HookInstaller {
         if !remove, root["disableAllHooks"] as? Bool == true { throw HookInstallationError.hooksDisabled }
         if let hooks = root["hooks"], !(hooks is [String: Any]) { throw HookInstallationError.invalidConfiguration }
         var hooks = root["hooks"] as? [String: Any] ?? [:]
-        for event in events {
+        for event in events + [provider == .codex ? "Interrupt" : "StopFailure"] {
             if let value = hooks[event], !(value is [[String: Any]]) { throw HookInstallationError.invalidConfiguration }
             var groups = hooks[event] as? [[String: Any]] ?? []
             let command = "\(SessionNavigator.shellQuote(executable)) \(flag) \(provider.rawValue)"

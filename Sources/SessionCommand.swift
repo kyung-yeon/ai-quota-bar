@@ -5,6 +5,20 @@ import Darwin
 enum SessionCommand {
     static func hookEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        var ancestor = getppid()
+        for _ in 0..<12 {
+            guard ancestor > 1, let data = try? run("/bin/ps", ["-p", String(ancestor), "-o", "ppid=,comm="], timeout: 0.3),
+                  let text = String(data: data, encoding: .utf8) else { break }
+            let parts = text.trimmingCharacters(in: .whitespacesAndNewlines).split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2, let parent = Int32(parts[0]), parent != ancestor else { break }
+            if ["codex", "claude"].contains(URL(fileURLWithPath: String(parts[1])).lastPathComponent.lowercased()),
+               let start = HerdrClientBinding.startTime(ancestor) {
+                environment["AIQUOTABAR_OWNER_PID"] = String(ancestor)
+                environment["AIQUOTABAR_OWNER_START"] = start
+                break
+            }
+            ancestor = parent
+        }
         guard environment["TERM_PROGRAM"] == "Apple_Terminal" else { return environment }
         var pid = getppid()
         var tty: String?
@@ -28,7 +42,7 @@ enum SessionCommand {
         }
         return environment
     }
-    static func run(_ path: String, _ arguments: [String], environment: [String: String] = [:], timeout: TimeInterval = 4) throws -> Data {
+    static func run(_ path: String, _ arguments: [String], environment: [String: String] = [:], timeout: TimeInterval = 4, outputLimit: Int = 262_144) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -42,7 +56,7 @@ enum SessionCommand {
         try process.run()
         // Drain concurrently so a large CLI response cannot fill the pipe and deadlock.
         let reader = DispatchGroup()
-        let buffer = CommandOutput()
+        let buffer = CommandOutput(limit: outputLimit)
         reader.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { reader.leave() }
@@ -69,9 +83,11 @@ enum SessionCommand {
 private final class CommandOutput: @unchecked Sendable {
     private let lock = NSLock()
     private var bytes = Data()
+    private let limit: Int
+    init(limit: Int) { self.limit = limit }
     func append(_ data: Data) {
         lock.lock(); defer { lock.unlock() }
-        if bytes.count < 262_144 { bytes.append(data.prefix(262_144 - bytes.count)) }
+        if bytes.count < limit { bytes.append(data.prefix(limit - bytes.count)) }
     }
     var data: Data { lock.lock(); defer { lock.unlock() }; return bytes }
 }
