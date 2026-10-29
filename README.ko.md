@@ -25,7 +25,7 @@ Codex와 Claude Code 사용량을 함께 확인하는 macOS 메뉴 막대 앱입
 
 ## DMG로 설치
 
-**[macOS용 AiQuotaBar 다운로드](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v2.0.0/AiQuotaBar-2.0.0-universal.dmg)** · [전체 릴리스 및 체크섬](https://github.com/kyung-yeon/ai-quota-bar/releases)
+**[macOS용 AiQuotaBar 다운로드](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v0.1.0/AiQuotaBar-0.1.0-universal.dmg)** · [전체 릴리스 및 체크섬](https://github.com/kyung-yeon/ai-quota-bar/releases)
 
 1. DMG를 열고 **AiQuotaBar.app**을 **Applications**로 드래그합니다.
 2. DMG를 추출한 뒤 응용 프로그램에서 AiQuotaBar를 실행합니다.
@@ -116,7 +116,7 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 make dmg
 ```
 
-두 아키텍처를 빌드해 `dist/AiQuotaBar-2.0.0-universal.dmg`와 `.dmg.sha256` 체크섬을 생성합니다. 디스크 이미지 검증, 읽기 전용 마운트, 두 아키텍처·앱 서명 확인, 마운트된 앱의 오프라인 테스트, 디스크 추출까지 수행하며 앱을 설치하거나 메뉴 막대에 실행하지 않습니다. 배포 패키징은 `dmg.py`, 설치 안내는 `Docs/`에 있습니다.
+두 아키텍처를 빌드해 `dist/AiQuotaBar-0.1.0-universal.dmg`와 `.dmg.sha256` 체크섬을 생성합니다. 디스크 이미지 검증, 읽기 전용 마운트, 두 아키텍처·앱 서명 확인, 마운트된 앱의 오프라인 테스트, 디스크 추출까지 수행하며 앱을 설치하거나 메뉴 막대에 실행하지 않습니다. 배포 패키징은 `dmg.py`, 설치 안내는 `Docs/`에 있습니다.
 
 ## 자동 실행 해제 및 삭제
 
