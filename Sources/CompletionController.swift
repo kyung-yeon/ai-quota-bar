@@ -10,18 +10,30 @@ import AppKit
     private let connect: @Sendable () -> [Provider: HookConnectionState]
     private(set) var connectionStates: [Provider: HookConnectionState] = [:]
     private var events: [CompletionEvent] = []
+    private var rows: [SessionRow] = []
+    private var discovered: [LiveSession] = []
+    private var discoveryUnavailable = false
+    private let discover: @Sendable () throws -> [LiveSession]
+    private let preferences: UserDefaults
+    private(set) var isOpen: Bool
+    var onVisibilityChanged: (() -> Void)?
     private var previewEvents: [CompletionEvent]?
     var onCountChanged: ((Int) -> Void)?
     var onConnectionChanged: (() -> Void)?
     var unreadCount: Int { events.count }
 
-    init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
+    init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,
+         discover: @escaping @Sendable () throws -> [LiveSession] = { try OrcaSessionDiscovery.read() },
+         connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
         guard let executable = Bundle.main.executableURL?.path else { return [:] }
         return HookInstaller.connectAvailable(executable: executable)
     }) {
         self.store = store
         self.panel = panel ?? CompletionPanel()
         self.connect = connect
+        self.discover = discover
+        self.preferences = preferences
+        self.isOpen = !preferences.bool(forKey: "sessionPanelHidden")
         let panel = self.panel
         panel.onOpen = { [weak self] event in
             if self?.previewEvents != nil {
@@ -36,6 +48,7 @@ import AppKit
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onAcknowledgeAll = { [weak self] in self?.acknowledge(nil) }
         panel.onPreview = { [weak self] in self?.showPreview() }
+        panel.onClose = { [weak self] in self?.close() }
     }
 
     func start() {
@@ -52,14 +65,28 @@ import AppKit
 
     func show() {
         previewEvents = nil
-        panel.show(events, animateNew: false)
-        if events.isEmpty { panel.showEmpty(connectionSummary) }
+        isOpen = true
+        preferences.set(false, forKey: "sessionPanelHidden")
+        panel.showSessions(rows, animateNew: false)
+        onVisibilityChanged?()
     }
 
+    func close() {
+        isOpen = false; previewEvents = nil
+        preferences.set(true, forKey: "sessionPanelHidden")
+        panel.hide()
+        onVisibilityChanged?()
+    }
+
+    func toggle() { if isOpen { close() } else { show() } }
+
     func showPreview() {
+        isOpen = true
+        preferences.set(false, forKey: "sessionPanelHidden")
         let samples = Preview.completionEvents()
         previewEvents = samples
         panel.show(samples, animateNew: true, preview: true)
+        onVisibilityChanged?()
     }
 
     private var connectionSummary: String {
@@ -98,18 +125,39 @@ import AppKit
         guard !loading else { return }
         loading = true
         let store = self.store
+        let discover = self.discover
+        let previous = discovered
         Task { @MainActor [weak self] in
             defer { self?.loading = false }
             do {
-                let current = try await Task.detached(priority: .utility) { try store.load().unread }.value
+                let result = try await Task.detached(priority: .utility) {
+                    let live: [LiveSession]
+                    let unavailable: Bool
+                    do { live = try discover(); unavailable = false }
+                    catch { live = previous.map { var value = $0; value.activity = .unknown; return value }; unavailable = true }
+                    if !unavailable { try store.recordObservedCompletions(live, previous: previous) }
+                    let state = try store.load()
+                    return (state.unread, SessionRow.make(state: state, discovered: live), live, unavailable)
+                }.value
                 guard let self else { return }
+                let (current, rows, live, unavailable) = result
+                // Unknown is a display state, not evidence that a running turn stopped.
+                // Keep the last successful snapshot so recovery can detect its completion.
+                if !unavailable { self.discovered = live }
                 let newIDs = Set(current.map(\.id)).subtracting(self.events.map(\.id))
-                if current != self.events {
-                    self.previewEvents = nil
+                if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible) {
+                    if !newIDs.isEmpty { self.previewEvents = nil }
                     self.events = current
-                    self.panel.show(current, animateNew: !newIDs.isEmpty)
+                    self.rows = rows
+                    if self.isOpen && self.previewEvents == nil { self.panel.showSessions(rows, animateNew: !newIDs.isEmpty) }
                     self.onCountChanged?(current.count)
                 }
+                if unavailable && self.isOpen {
+                    self.panel.showError(L10n.text("Orca 상태를 갱신하지 못했습니다. 잠시 후 다시 확인합니다.", "Could not refresh Orca status. Retrying shortly."))
+                } else if self.discoveryUnavailable {
+                    self.panel.showError(nil)
+                }
+                self.discoveryUnavailable = unavailable
             } catch { self?.panel.showError(error.localizedDescription) }
         }
     }
@@ -118,10 +166,11 @@ import AppKit
         if let preview = previewEvents {
             let remaining = id.map { id in preview.filter { $0.id != id } } ?? []
             previewEvents = remaining.isEmpty ? nil : remaining
-            panel.show(remaining.isEmpty ? events : remaining, animateNew: false, preview: !remaining.isEmpty)
+            if remaining.isEmpty { panel.showSessions(rows, animateNew: false) }
+            else { panel.show(remaining, animateNew: false, preview: true) }
             return
         }
-        if events.isEmpty { panel.show([], animateNew: false); return }
+        if events.isEmpty { return }
         let store = self.store
         let ids = id.map { Set([$0]) } ?? Set(events.map(\.id))
         Task { @MainActor [weak self] in

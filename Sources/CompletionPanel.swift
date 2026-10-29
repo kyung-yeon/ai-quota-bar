@@ -18,7 +18,7 @@ private final class CompletionWindow: NSPanel {
     private let pageLabel = CompletionCard.label("", size: 11, color: .secondaryLabelColor)
     private let previous = CompletionButton("", symbol: "chevron.left", plain: true, action: {})
     private let next = CompletionButton("", symbol: "chevron.right", plain: true, action: {})
-    private var displayedEvents: [CompletionEvent] = []
+    private var displayedRows: [SessionRow] = []
     private var isPreview = false
     private var pageIndex = 0
     private var pageSize = 3
@@ -39,6 +39,7 @@ private final class CompletionWindow: NSPanel {
     var onAcknowledge: ((String) -> Void)?
     var onAcknowledgeAll: (() -> Void)?
     var onPreview: (() -> Void)?
+    var onClose: (() -> Void)?
     var activeWiggle: CAAnimation? { chrome.layer?.animation(forKey: motionKey) }
 
     init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
@@ -74,7 +75,12 @@ private final class CompletionWindow: NSPanel {
         badge.translatesAutoresizingMaskIntoConstraints = false
         let pill = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
         pill.addSubview(badge)
-        let header = NSStackView(views: [heading, pill, NSView(), dismissAll]); header.spacing = 8
+        let close = CompletionButton("", symbol: "xmark", plain: true) { [weak self] in self?.onClose?() }
+        close.identifier = NSUserInterfaceItemIdentifier("completion-close")
+        close.toolTip = L10n.text("플로팅 닫기", "Close floating panel")
+        close.setAccessibilityLabel(close.toolTip!)
+        close.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        let header = NSStackView(views: [heading, pill, NSView(), dismissAll, close]); header.spacing = 8
         previous.identifier = NSUserInterfaceItemIdentifier("completion-previous-page")
         next.identifier = NSUserInterfaceItemIdentifier("completion-next-page")
         previous.setAccessibilityLabel(L10n.text("이전 알림", "Previous completions"))
@@ -112,7 +118,14 @@ private final class CompletionWindow: NSPanel {
             MainActor.assumeIsolated { self?.position() }
         })
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if self?.reduceMotion() == true { self?.stopAnimation() } }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.reduceMotion() {
+                    self.stopAnimation()
+                    self.list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
+                }
+                self.updateActivityMotion()
+            }
         })
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -132,21 +145,44 @@ private final class CompletionWindow: NSPanel {
     }
 
     func show(_ events: [CompletionEvent], animateNew: Bool, preview: Bool = false) {
-        count = events.count
-        displayedEvents = events
+        guard !events.isEmpty else { displayedRows = []; count = 0; hide(); return }
+        showSessions(events.map { SessionRow(event: $0) }, animateNew: animateNew, preview: preview)
+    }
+
+    func showSessions(_ rows: [SessionRow], animateNew: Bool, preview: Bool = false) {
+        let oldPositions = Dictionary(uniqueKeysWithValues: list.arrangedSubviews.compactMap { view -> (String, NSRect)? in
+            guard let card = view as? CompletionCard else { return nil }
+            return (card.row.id, card.convert(card.bounds, to: panel.contentView))
+        })
+        count = rows.count
+        displayedRows = rows
         isPreview = preview
         if animateNew { pageIndex = 0 }
         clearList()
-        guard !events.isEmpty else { stopAnimation(); panel.orderOut(nil); return }
+        guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
         heading.stringValue = preview ? L10n.text("미리보기 · 예시 데이터", "Preview · Sample data")
-            : L10n.text("응답 완료", "Completed")
-        badge.stringValue = "\(events.count)"
+            : L10n.text("AI 세션", "AI sessions")
+        badge.stringValue = "\(rows.count)"
         dismissAll.title = L10n.text("모두 확인", "Dismiss all")
+        dismissAll.isEnabled = rows.contains(where: \.needsAttention)
         renderPage()
         position()
         panel.orderFrontRegardless()
         panel.contentView?.layoutSubtreeIfNeeded()
-        if animateNew { animate() }
+        updateActivityMotion()
+        if animateNew, !reduceMotion() {
+            for card in list.arrangedSubviews.compactMap({ $0 as? CompletionCard }) {
+                let current = card.convert(card.bounds, to: panel.contentView)
+                let offset = oldPositions[card.row.id].map { $0.minY - current.minY } ?? -20
+                if abs(offset) > 1 {
+                    let movement = CABasicAnimation(keyPath: "transform.translation.y")
+                    movement.fromValue = offset; movement.toValue = 0; movement.duration = 0.35
+                    movement.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    card.layer?.add(movement, forKey: "sessionPromotion")
+                }
+            }
+            animate()
+        }
     }
 
     private func renderPage() {
@@ -157,9 +193,9 @@ private final class CompletionWindow: NSPanel {
         pageLabel.stringValue = "\(pageIndex + 1) / \(pages)"
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages
-        for event in displayedEvents.dropFirst(pageIndex * pageSize).prefix(pageSize) {
-            let card = CompletionCard(event: event, preview: isPreview, open: { [weak self] in self?.onOpen?(event) },
-                                      acknowledge: { [weak self] in self?.onAcknowledge?(event.id) })
+        for row in displayedRows.dropFirst(pageIndex * pageSize).prefix(pageSize) {
+            let card = CompletionCard(row: row, preview: isPreview, open: { [weak self] in self?.onOpen?(row.event) },
+                                      acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
             addRow(card)
         }
     }
@@ -168,18 +204,20 @@ private final class CompletionWindow: NSPanel {
         pageIndex += offset
         renderPage()
         position()
+        updateActivityMotion()
     }
 
     func showEmpty(_ message: String) {
-        count = 0; displayedEvents = []; stopAnimation(); clearList()
+        count = 0; displayedRows = []; stopAnimation(); clearList()
         pagination.isHidden = true
-        heading.stringValue = L10n.text("완료 알림 대기 중", "Waiting for completions")
+        heading.stringValue = L10n.text("AI 세션", "AI sessions")
         badge.stringValue = "0"
         let text = NSTextField(wrappingLabelWithString: message)
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)
         addRow(CompletionButton(L10n.text("플로팅 미리보기", "Preview floating alert"), symbol: "play.fill") { [weak self] in self?.onPreview?() })
-        dismissAll.title = L10n.text("닫기", "Close")
+        dismissAll.title = L10n.text("모두 확인", "Dismiss all")
+        dismissAll.isEnabled = false
         position()
         panel.orderFrontRegardless()
     }
@@ -187,7 +225,17 @@ private final class CompletionWindow: NSPanel {
     func showError(_ message: String?) {
         errorLabel.stringValue = message ?? ""; errorLabel.isHidden = message == nil
         if panel.isVisible || message != nil { position() }
-        if message != nil { panel.orderFrontRegardless() }
+        if message != nil && panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    func hide() {
+        stopAnimation()
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(false) }
+        panel.orderOut(nil)
+    }
+
+    private func updateActivityMotion() {
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(panel.isVisible && !reduceMotion()) }
     }
 
     private func clearList(resetError: Bool = true) {
@@ -245,7 +293,7 @@ private final class CompletionWindow: NSPanel {
         // Never clamp during a drag: the window must be able to cross display edges.
     }
     func animate() {
-        guard count > 0, panel.isVisible, !reduceMotion(), activeWiggle == nil else { return }
+        guard displayedRows.contains(where: \.needsAttention), panel.isVisible, !reduceMotion(), activeWiggle == nil else { return }
         chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size), forKey: motionKey)
     }
     private func stopAnimation() { chrome.layer?.removeAnimation(forKey: motionKey) }

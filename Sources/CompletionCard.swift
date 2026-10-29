@@ -3,16 +3,27 @@ import AppKit
 final class CompletionCard: NSView {
     private let time = CompletionCard.label("", size: 11, color: .secondaryLabelColor)
     private let completedAt: Date
-    init(event: CompletionEvent, preview: Bool = false, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+    let row: SessionRow
+    private let spinner = SessionSpinner()
+    convenience init(event: CompletionEvent, preview: Bool = false, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+        self.init(row: SessionRow(event: event), preview: preview, open: open, acknowledge: acknowledge)
+    }
+    init(row: SessionRow, preview: Bool = false, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+        self.row = row
+        let event = row.event
         completedAt = event.completedAt
         super.init(frame: .zero)
+        wantsLayer = true
+        identifier = NSUserInterfaceItemIdentifier(row.id)
         let surface = CompletionSurface(fill: CompletionColors.card, radius: 10)
+        surface.alphaValue = !row.needsAttention && row.activity != .running ? 0.65 : 1
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         let title = CompletionButton(event.project, plain: true, action: open)
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.controlSize = .mini
         title.alignment = .left
+        title.foreground = !row.needsAttention && row.activity != .running ? .secondaryLabelColor : nil
         title.isEnabled = !preview
         let previewHint = L10n.text("예시 알림에는 연결된 세션이 없습니다.", "Sample alerts have no connected session.")
         title.toolTip = preview ? previewHint : event.project + "\n" + event.directory
@@ -41,6 +52,7 @@ final class CompletionCard: NSView {
         dismiss.toolTip = L10n.text("확인", "Dismiss")
         dismiss.setAccessibilityLabel(dismiss.toolTip!)
         dismiss.identifier = NSUserInterfaceItemIdentifier("completion-dismiss")
+        dismiss.isHidden = !row.needsAttention
         [openButton, dismiss].forEach {
             $0.controlSize = .small
             $0.widthAnchor.constraint(equalToConstant: 26).isActive = true
@@ -48,8 +60,12 @@ final class CompletionCard: NSView {
         }
         let buttons = NSStackView(views: [openButton, dismiss])
         buttons.spacing = 3
+        let status = NSStackView(views: [spinner, time])
+        status.spacing = 4
+        spinner.isHidden = row.activity != .running
+        status.widthAnchor.constraint(equalTo: time.widthAnchor, constant: row.activity == .running ? 16 : 0).isActive = true
         let stack = NSView()
-        [icon, details, time, buttons].forEach {
+        [icon, details, status, buttons].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             stack.addSubview($0)
             $0.centerYAnchor.constraint(equalTo: stack.centerYAnchor).isActive = true
@@ -69,10 +85,10 @@ final class CompletionCard: NSView {
             stack.heightAnchor.constraint(equalToConstant: 34),
             icon.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
             details.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            time.leadingAnchor.constraint(equalTo: details.trailingAnchor, constant: 8),
-            buttons.leadingAnchor.constraint(equalTo: time.trailingAnchor, constant: 8),
+            status.leadingAnchor.constraint(equalTo: details.trailingAnchor, constant: 8),
+            buttons.leadingAnchor.constraint(equalTo: status.trailingAnchor, constant: 8),
             buttons.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
-            buttons.widthAnchor.constraint(equalToConstant: 55),
+            buttons.widthAnchor.constraint(equalToConstant: row.needsAttention ? 55 : 26),
             title.widthAnchor.constraint(equalTo: details.widthAnchor),
             session.widthAnchor.constraint(equalTo: details.widthAnchor)
         ])
@@ -80,7 +96,17 @@ final class CompletionCard: NSView {
         setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func setMotion(_ enabled: Bool) { spinner.setAnimating(enabled && row.activity == .running) }
     func updateTime() {
+        if !row.needsAttention {
+            switch row.activity {
+            case .running: time.stringValue = L10n.text("작업 중", "Working")
+            case .idle: time.stringValue = L10n.text("대기", "Idle")
+            case .unknown: time.stringValue = L10n.text("열림", "Open")
+            }
+            time.setAccessibilityLabel(time.stringValue)
+            return
+        }
         let minutes = max(0, Int(Date().timeIntervalSince(completedAt) / 60))
         if minutes == 0 { time.stringValue = L10n.text("방금 전", "Just now") }
         else if minutes < 60 { time.stringValue = L10n.text("\(minutes)분 전", "\(minutes)m ago") }
@@ -94,5 +120,31 @@ final class CompletionCard: NSView {
         field.font = .systemFont(ofSize: size); field.textColor = color
         field.lineBreakMode = .byTruncatingTail; field.toolTip = text
         return field
+    }
+}
+
+final class SessionSpinner: NSView {
+    var isAnimating: Bool { layer?.animation(forKey: "working") != nil }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        widthAnchor.constraint(equalToConstant: 12).isActive = true
+        heightAnchor.constraint(equalToConstant: 12).isActive = true
+        setAccessibilityLabel(L10n.text("작업 중", "Working"))
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.systemBlue.setStroke()
+        let arc = NSBezierPath()
+        arc.appendArc(withCenter: NSPoint(x: 6, y: 6), radius: 4, startAngle: 30, endAngle: 310)
+        arc.lineWidth = 2; arc.lineCapStyle = .round; arc.stroke()
+    }
+    func setAnimating(_ enabled: Bool) {
+        guard enabled else { layer?.removeAnimation(forKey: "working"); return }
+        guard !isAnimating else { return }
+        let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+        animation.fromValue = 0; animation.toValue = -Double.pi * 2
+        animation.duration = 0.9; animation.repeatCount = .infinity
+        layer?.add(animation, forKey: "working")
     }
 }

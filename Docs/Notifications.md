@@ -8,11 +8,21 @@ The inbox is an independent, borderless floating window; it does not send macOS 
 
 The entire panel swings three times by ±3° around its top-right corner when new completions arrive and every 12 seconds afterward. Each movement takes 0.11 seconds. Dismissal stops the animation; macOS **Reduce motion** disables it, including when enabled while the animation is running.
 
-Choose **Preview floating alert** in the menu to see and dismiss two clearly marked sample cards without running an agent. Preview cards are never stored, never count as unread completions, and have session navigation disabled. Real incoming completions replace the preview. **Show completions** also uses the custom panel when the inbox is empty.
+Choose **Preview floating alert** in the menu to see and dismiss two clearly marked sample cards without running an agent. Preview cards are never stored, never count as unread completions, and have session navigation disabled. Real incoming completions replace the preview. **Open floating panel** also shows the session list when there are no unread completions.
 
-<img src="../Assets/screenshots/completions-en.png" alt="Completion cards for fictional Codex and Claude Code sessions" width="390">
+<img src="../Assets/screenshots/completions-en.png" alt="Attention, working and idle rows for fictional AI sessions" width="390">
 
 *Rendered from the app using fictional sessions, with no account or conversation data.*
+
+## Open sessions and visibility
+
+The list orders **needs attention → working → idle/open**. Idle rows are gray but remain clickable. Working rows have a rotating indicator. A newly completed session moves to the first page and animates upward; Reduce Motion disables movement and spinning. Dismissing a completion leaves its session in the list while it is open. A closed session is removed unless it has an unread completion. Pagination keeps every row accessible without a scrollbar.
+
+**Open floating panel / Close floating panel** in the menu bar and the **×** button beside **Dismiss all** control visibility. Closing does not acknowledge anything or stop collection. This choice survives new completions and relaunches; reopen the panel from the menu.
+
+Lifecycle hooks track sessions after they start or submit a prompt. The owning CLI process and its start time, when available, remove sessions that exit without a final hook. Other terminals' already-running sessions need a new session with hooks enabled; stored conversation history is not treated as an open session. Claude interruption without a hook can leave the last reported state until its next lifecycle event.
+
+For an already-running local **Orca** runtime, AiQuotaBar also reads `terminal list` and `worktree ps`. Connected agent terminals appear immediately, including those started before AiQuotaBar. The runtime's working-to-done transition can supply a completion when hooks are missing; discovering an already-idle tab never creates an alert. Polling can miss a whole turn between samples, so hooks remain the preferred completion signal. Runtime-only identity is scoped to the terminal handle until a hook provides the provider session ID. Failed or incomplete runtime reads retain rows with unknown activity and an explanation. This covers the current Orca profile and sessions its CLI exposes, not every native chat, remote runtime, or custom profile. No prompts, terminal previews, or conversation history are stored.
 
 ## Automatic connection
 
@@ -21,9 +31,9 @@ Choose **Preview floating alert** in the menu to see and dismiss two clearly mar
 3. Start a new agent session. In Codex, open `/hooks` and review and trust the new AiQuotaBar hooks. Automatic registration does not grant Codex's separate hook trust.
 4. Complete a response. The floating card normally appears within about two seconds.
 
-The app adds `SessionStart`, `UserPromptSubmit`, and `Stop` command hooks to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Checks run at launch, once a minute, and on **Refresh now**. Unchanged settings are not rewritten or backed up again. Missing CLIs are skipped, including configuration creation; installing them later is detected on the next check.
+The app adds `SessionStart`, `UserPromptSubmit`, `Stop`, and `SessionEnd` command hooks, plus Codex `Interrupt` or Claude `StopFailure`, to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Checks run at launch, once a minute, and on **Refresh now**. Unchanged settings are not rewritten or backed up again. Missing CLIs are skipped, including configuration creation; installing them later is detected on the next check.
 
-Invalid JSON, symbolic-link configuration files, and globally disabled hooks are left intact. **Check notification connection…** appears in the menu when a connection fails. **Show completions** also explains connection status when there are no unread cards. Automatic connection does not install a CLI or sign into an account.
+Invalid JSON, symbolic-link configuration files, and globally disabled hooks are left intact. **Check notification connection…** appears in the menu when a connection fails. Automatic connection does not install a CLI or sign into an account.
 
 The hook executable is the installed app itself; no Python, Node, or extra daemon is required. Hooks save events even while AiQuotaBar is closed. The next launch restores the unread list. After moving the app, launch it from the new location to update hook paths automatically; Codex may require trust review again. Disconnect before deleting the app.
 
@@ -37,7 +47,7 @@ AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
 "$AQB" --install-completion-hooks claude
 ```
 
-For a source installation, use `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`. To disconnect a profile, use `--remove-completion-hooks codex` or `--remove-completion-hooks claude` in the same environment. This removes only AiQuotaBar hooks and writes a sibling `*.aiquotabar-disabled` marker so automatic checks do not reconnect that profile. An explicit install command re-enables it. Start a new agent session after either change. The command prints the configuration path. Do not run it against a manager's generated configuration if that manager recreates the file; use that manager's persistent hook settings instead, with the command `'<absolute app executable>' --completion-hook codex` (or `claude`) for the three events above.
+For a source installation, use `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`. To disconnect a profile, use `--remove-completion-hooks codex` or `--remove-completion-hooks claude` in the same environment. This removes only AiQuotaBar hooks and writes a sibling `*.aiquotabar-disabled` marker so automatic checks do not reconnect that profile. An explicit install command re-enables it. Start a new agent session after either change. The command prints the configuration path. Do not run it against a manager's generated configuration if that manager recreates the file; use that manager's persistent hook settings instead, with the command `'<absolute app executable>' --completion-hook codex` (or `claude`) for the applicable lifecycle events above.
 
 Session names use `AIQUOTABAR_SESSION_NAME` when set before starting the agent, then an event-supplied session name, then a short session identifier. Example:
 

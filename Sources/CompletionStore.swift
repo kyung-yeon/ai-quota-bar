@@ -65,6 +65,8 @@ struct CompletionStore {
         let key = completionHash(provider.rawValue + "\u{0}" + session)
         let captured = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
         try update { state in
+            let completion = try CompletionEvent.decode(data, provider: provider, environment: environment, fallbackToken: state.contexts?[key]?.turn)
+            if let completion, state.events.contains(where: { $0.id == completion.id }) { return }
             if name == "SessionEnd" { state.sessions?.removeValue(forKey: key); return }
             let lifecycle = ["SessionStart", "UserPromptSubmit", "Stop", "Interrupt", "StopFailure"]
             if lifecycle.contains(name), let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 {
@@ -78,7 +80,19 @@ struct CompletionStore {
                     owner = SessionOwner(pid: pid, startedAt: start)
                 }
                 if state.sessions == nil { state.sessions = [:] }
-                state.sessions?[key] = LiveSession(event: event, activity: name == "UserPromptSubmit" ? .running : .idle, owner: owner, updatedAt: now)
+                let activity: SessionActivity
+                if name == "SessionStart", payload["source"] as? String == "compact" {
+                    activity = state.sessions?[key]?.activity ?? .idle
+                } else { activity = name == "UserPromptSubmit" ? .running : .idle }
+                state.sessions?[key] = LiveSession(event: event, activity: activity, owner: owner, updatedAt: now)
+                // Adopt a runtime-only identity as soon as the native session is known,
+                // including while its previous completion still needs acknowledgement.
+                for index in state.events.indices where state.events[index].sessionID.hasPrefix("orca:") && event.terminalKey != nil && state.events[index].terminalKey == event.terminalKey {
+                    let old = state.events[index]
+                    state.events[index] = CompletionEvent(id: old.id, providerID: old.providerID, sessionID: session,
+                        project: event.project, directory: event.directory, sessionName: event.sessionName,
+                        completedAt: old.completedAt, destination: captured, acknowledgedAt: old.acknowledgedAt)
+                }
             }
             if name == "SessionStart" || name == "UserPromptSubmit" {
                 var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, updatedAt: Date())
@@ -86,9 +100,37 @@ struct CompletionStore {
                 context.updatedAt = Date()
                 if state.contexts == nil { state.contexts = [:] }
                 state.contexts?[key] = context
-            } else if var event = try CompletionEvent.decode(data, provider: provider, environment: environment, fallbackToken: state.contexts?[key]?.turn) {
+            } else if var event = completion {
                 event.destination = captured
+                // Prefer the native identity once a previously untracked tab sends hooks.
+                for index in state.events.indices where state.events[index].id.hasPrefix("runtime:") && state.events[index].terminalKey == event.terminalKey && event.terminalKey != nil {
+                    state.events[index].acknowledgedAt = state.events[index].acknowledgedAt ?? Date()
+                }
                 if !state.events.contains(where: { $0.id == event.id }) { state.events.append(event) }
+            }
+        }
+    }
+
+    func recordObservedCompletions(_ current: [LiveSession], previous: [LiveSession]) throws {
+        let changed = current.filter { session in
+            session.activity == .idle && session.completionToken != nil && previous.contains {
+                $0.key == session.key && $0.activity == .running && $0.completionToken != session.completionToken
+            }
+        }
+        guard !changed.isEmpty else { return }
+        try update { state in
+            for session in changed {
+                guard let prior = previous.first(where: { $0.key == session.key }) else { continue }
+                // Prefer a hook already delivered during the observed turn.
+                if state.events.contains(where: { $0.terminalKey == session.event.terminalKey && $0.completedAt >= prior.updatedAt }) { continue }
+                let id = "runtime:" + completionHash(session.key + "\u{0}" + session.completionToken!)
+                guard !state.events.contains(where: { $0.id == id }) else { continue }
+                let source = state.sessions?.values.filter { $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }?.event
+                    ?? state.events.filter { $0.terminalKey == session.event.terminalKey }.max { $0.completedAt < $1.completedAt }
+                    ?? session.event
+                state.events.append(CompletionEvent(id: id, providerID: source.providerID, sessionID: source.sessionID,
+                    project: source.project, directory: source.directory, sessionName: source.sessionName,
+                    completedAt: session.updatedAt, destination: source.destination))
             }
         }
     }

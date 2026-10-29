@@ -146,7 +146,7 @@ import QuartzCore
     let controllerPanel = CompletionPanel()
     controllerPanel.panel.alphaValue = 0
     controllerPanel.panel.ignoresMouseEvents = true
-    let controller = CompletionController(store: store, panel: controllerPanel, connect: {
+    let controller = CompletionController(store: store, panel: controllerPanel, preferences: preferences, discover: { [] }, connect: {
         HookInstaller.connectAvailable(executable: "/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar",
                                        environment: environment, isInstalled: { _ in true })
     })
@@ -193,7 +193,7 @@ import QuartzCore
     try expect(previewViews.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains(L10n.text("예시 데이터", "Sample data")) },
                "Preview is visibly marked as sample data")
     previewViews.compactMap { $0 as? NSButton }.first { $0.title == L10n.text("모두 확인", "Dismiss all") }!.performClick(nil)
-    try expect(!previewWindow.isVisible && (try store.load().unread.isEmpty), "Dismissing preview closes it without changing the stored inbox")
+    try expect(previewWindow.isVisible && (try store.load().unread.isEmpty), "Dismissing preview returns to the empty session list without changing the stored inbox")
     try store.record(events[2])
     waitForCount(1)
     controller.showPreview()
@@ -208,5 +208,74 @@ import QuartzCore
     try expect(previewWindow.isVisible && controller.unreadCount == 1, "Unread floating window remains after app/Space changes and refresh polling")
     try store.acknowledgeAll()
     waitForCount(0)
+    let running = SessionRow(event: events[1], activity: .running, isOpen: true, needsAttention: false)
+    let idle = SessionRow(event: events[0], activity: .idle, isOpen: true, needsAttention: false)
+    animated.showSessions([running, idle], animateNew: false)
+    let activityViews = descendants(animated.panel.contentView!)
+    let spinners = activityViews.compactMap { $0 as? SessionSpinner }
+    try expect(spinners.contains(where: \.isAnimating), "Running sessions have a rotating activity indicator")
+    try expect(animated.activeWiggle == nil, "Idle and running rows do not trigger completion wiggles")
+    try expect(activityViews.compactMap { $0 as? CompletionCard }.count == 2, "Both idle and running sessions appear before a completion")
+    var attention = idle; attention.needsAttention = true
+    animated.showSessions([attention, running], animateNew: true)
+    let promoted = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }.first { $0.row.id == idle.id }!
+    try expect(promoted.layer?.animation(forKey: "sessionPromotion") != nil, "An existing session animates upward when promoted to attention")
+    reducedMotion = true
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    try expect(descendants(animated.panel.contentView!).compactMap { $0 as? SessionSpinner }.allSatisfy { !$0.isAnimating }, "Reduce Motion stops activity animation")
+    animated.hide()
+    let closeButton = descendants(controllerPanel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-close" }!
+    closeButton.performClick(nil)
+    try expect(!controller.isOpen && !controllerPanel.panel.isVisible, "Header close hides the floating list")
+    try store.record(events[4]); waitForCount(1)
+    try expect(!controllerPanel.panel.isVisible && controller.unreadCount == 1, "New completions are collected without reopening an explicitly closed panel")
+    controller.toggle()
+    try expect(controller.isOpen && controllerPanel.panel.isVisible, "Menu toggle reopens the current list")
+    controller.toggle()
+    let restored = CompletionController(store: store, panel: animated, preferences: preferences, discover: { [] }, connect: { [:] })
+    restored.start()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    try expect(!restored.isOpen && !animated.panel.isVisible, "Explicit closed preference survives app relaunch")
+    controllerPanel.hide()
+    let recoveryPanel = CompletionPanel(preferences: preferences)
+    recoveryPanel.panel.alphaValue = 0; recoveryPanel.panel.ignoresMouseEvents = true
+    defer { recoveryPanel.hide() }
+    let recoveryPreferences = UserDefaults(suiteName: preferencesName + ".recovery")!
+    defer { recoveryPreferences.removePersistentDomain(forName: preferencesName + ".recovery") }
+    let discovery = SessionDiscoveryFixture()
+    let runtimeEvent = CompletionEvent(id: "runtime-ui", providerID: "codex", sessionID: "orca:ui", project: "Recovery", directory: "/sample",
+        sessionName: "Recovery", completedAt: Date(), destination: SessionDestination(host: .orca, target: "term_recovery"))
+    let live = LiveSession(event: runtimeEvent, activity: .running, updatedAt: Date())
+    discovery.set([live])
+    let recovery = CompletionController(store: CompletionStore(directory: directory.appendingPathComponent("recovery")), panel: recoveryPanel,
+        preferences: recoveryPreferences, discover: { try discovery.read() }, connect: { [:] })
+    recovery.start()
+    func waitForActivity(_ activity: SessionActivity) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if descendants(recoveryPanel.panel.contentView!).compactMap({ $0 as? CompletionCard }).first?.row.activity == activity { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
+    try expect(waitForActivity(.running), "Runtime discovery displays a working session")
+    discovery.set(nil)
+    try expect(waitForActivity(.unknown), "A temporary discovery failure retains the session with unknown activity")
+    var done = live; done.activity = .idle; done.updatedAt = Date(); done.completionToken = "recovered"
+    discovery.set([done])
+    _ = waitForActivity(.idle)
+    try expect(recovery.unreadCount == 1, "Recovery after a failed poll detects completion from the last successful working snapshot")
+    recovery.close()
     print("PASS: \(checks) completion UI and persistence checks")
+}
+
+private final class SessionDiscoveryFixture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: [LiveSession]?
+    func set(_ value: [LiveSession]?) { lock.lock(); defer { lock.unlock() }; self.value = value }
+    func read() throws -> [LiveSession] {
+        lock.lock(); defer { lock.unlock() }
+        guard let value else { throw CompletionError.unavailable }
+        return value
+    }
 }

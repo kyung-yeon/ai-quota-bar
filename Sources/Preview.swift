@@ -21,7 +21,12 @@ enum Preview {
         panel.panel.ignoresMouseEvents = true
         let demo = completionEvents()
         panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
-        panel.show(demo, animateNew: false)
+        let idle = CompletionEvent(id: "demo-idle", providerID: "codex", sessionID: "sample-idle",
+            project: "design-system", directory: "/projects/sample", sessionName: L10n.text("컴포넌트 정리", "Organize components"),
+            completedAt: Date(), destination: SessionDestination())
+        panel.showSessions([SessionRow(event: demo[0]),
+                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false),
+                            SessionRow(event: idle, isOpen: true, needsAttention: false)], animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         guard let view = panel.panel.contentView else { return }
         view.layoutSubtreeIfNeeded()

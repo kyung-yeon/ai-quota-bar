@@ -39,6 +39,7 @@ final class CompletionSurface: NSView {
 
 final class CompletionButton: NSButton {
     var perform: (() -> Void)?
+    var foreground: NSColor?
     private let prominent: Bool
     private let plain: Bool
     init(_ title: String, symbol: String? = nil, prominent: Bool = false, plain: Bool = false, action: @escaping () -> Void) {
@@ -63,7 +64,7 @@ final class CompletionButton: NSButton {
         return NSSize(width: text.width + (image == nil ? 0 : 18) + (plain ? 0 : 24), height: height)
     }
     override func draw(_ dirtyRect: NSRect) {
-        let color: NSColor = isEnabled ? (prominent ? .white : .labelColor) : .tertiaryLabelColor
+        let color: NSColor = isEnabled ? (foreground ?? (prominent ? .white : .labelColor)) : .tertiaryLabelColor
         if !plain {
             let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
             (prominent ? CompletionColors.button : CompletionColors.background).setFill()
@@ -83,7 +84,14 @@ final class CompletionButton: NSButton {
         let x = alignment == .left ? 0 : (bounds.width - totalWidth) / 2
         (title as NSString).draw(in: NSRect(x: x, y: (bounds.height - size.height) / 2, width: textWidth, height: size.height), withAttributes: attributes)
         if let image {
-            let tinted = image.withSymbolConfiguration(.init(paletteColors: [color])) ?? image
+            // Resolve the symbol alpha ourselves: template symbol colors can be
+            // reinterpreted by AppKit when drawing a custom button in Dark Mode.
+            let tinted = NSImage(size: image.size)
+            tinted.lockFocus()
+            image.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+            color.setFill()
+            NSRect(origin: .zero, size: image.size).fill(using: .sourceIn)
+            tinted.unlockFocus()
             let imageX = title.isEmpty ? (bounds.width - 13) / 2 : x + textWidth + 5
             tinted.draw(in: NSRect(x: imageX, y: (bounds.height - 13) / 2, width: 13, height: 13))
         }
