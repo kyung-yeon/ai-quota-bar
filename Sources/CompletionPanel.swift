@@ -29,9 +29,10 @@ private final class CompletionWindow: NSPanel {
     private var pulse: Timer?
     private var observers: [NSObjectProtocol] = []
     private var count = 0
-    private let primaryVisibleFrame: () -> NSRect?
+    private let visibleFrames: () -> [NSRect]
+    private let preferences: UserDefaults
     private let reduceMotion: () -> Bool
-    private var positioning = false
+    private var positioning = true
     private let motionKey = "completionAttention"
     static let animationInset: CGFloat = 24
     var onOpen: ((CompletionEvent) -> Void)?
@@ -40,9 +41,11 @@ private final class CompletionWindow: NSPanel {
     var onPreview: (() -> Void)?
     var activeWiggle: CAAnimation? { chrome.layer?.animation(forKey: motionKey) }
 
-    init(primaryVisibleFrame: @escaping () -> NSRect? = { NSScreen.screens.first?.visibleFrame },
+    init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
+         preferences: UserDefaults = .standard,
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
-        self.primaryVisibleFrame = primaryVisibleFrame
+        self.visibleFrames = visibleFrames
+        self.preferences = preferences
         self.reduceMotion = reduceMotion
         panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -125,6 +128,7 @@ private final class CompletionWindow: NSPanel {
             }
         }
         pulse?.tolerance = 0.5
+        positioning = false
     }
 
     func show(_ events: [CompletionEvent], animateNew: Bool, preview: Bool = false) {
@@ -196,10 +200,18 @@ private final class CompletionWindow: NSPanel {
     }
 
     private func position() {
-        guard !positioning, let screenFrame = primaryVisibleFrame() else { return }
+        let screens = visibleFrames()
+        guard !positioning, let primary = screens.first else { return }
         positioning = true
         defer { positioning = false }
         stopAnimation()
+        let saved = preferences.bool(forKey: "completionPanelMoved")
+        // Default to the primary display, then follow the display chosen by dragging.
+        let currentScreen = saved ? screens.filter { $0.intersects(panel.frame) }.max {
+            let lhs = $0.intersection(panel.frame), rhs = $1.intersection(panel.frame)
+            return lhs.width * lhs.height < rhs.width * rhs.height
+        } : nil
+        let screenFrame = currentScreen ?? primary
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
         let width = min(432 + Self.animationInset * 2, visible.width)
         if count > 0 {
@@ -215,16 +227,22 @@ private final class CompletionWindow: NSPanel {
             height = ceil(stack.fittingSize.height + 18 + Self.animationInset * 2)
         }
         height = min(height, visible.height)
-        let saved = UserDefaults.standard.bool(forKey: "completionPanelMoved")
         let old = panel.frame
-        let x = saved ? min(max(old.minX, visible.minX), visible.maxX - width) : visible.maxX - width
-        let y = saved ? min(max(old.maxY - height, visible.minY), visible.maxY - height) : visible.maxY - height
+        let x = currentScreen != nil ? min(max(old.minX, visible.minX), visible.maxX - width) : visible.maxX - width
+        let y = currentScreen != nil ? min(max(old.maxY - height, visible.minY), visible.maxY - height) : visible.maxY - height
         panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
     }
 
+    func windowWillMove(_ notification: Notification) {
+        guard !positioning else { return }
+        preferences.set(true, forKey: "completionPanelMoved")
+        stopAnimation()
+    }
     func windowDidMove(_ notification: Notification) {
-        if NSEvent.pressedMouseButtons != 0 { UserDefaults.standard.set(true, forKey: "completionPanelMoved") }
-        if let primary = primaryVisibleFrame(), !primary.contains(panel.frame) { position() }
+        guard !positioning, NSEvent.pressedMouseButtons != 0 else { return }
+        preferences.set(true, forKey: "completionPanelMoved")
+        stopAnimation()
+        // Never clamp during a drag: the window must be able to cross display edges.
     }
     func animate() {
         guard count > 0, panel.isVisible, !reduceMotion(), activeWiggle == nil else { return }

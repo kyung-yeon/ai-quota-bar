@@ -14,7 +14,8 @@ final class CompletionCard: NSView {
         title.controlSize = .mini
         title.alignment = .left
         title.isEnabled = !preview
-        title.toolTip = event.project + "\n" + event.directory
+        let previewHint = L10n.text("예시 알림에는 연결된 세션이 없습니다.", "Sample alerts have no connected session.")
+        title.toolTip = preview ? previewHint : event.project + "\n" + event.directory
         title.setAccessibilityLabel(L10n.text("\(event.project) 세션 열기", "Open \(event.project) session"))
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -32,13 +33,15 @@ final class CompletionCard: NSView {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(SessionNavigator.resumeCommand(event), forType: .string)
         }
-        copy.toolTip = L10n.text("재개 명령 복사", "Copy resume command")
-        copy.setAccessibilityLabel(copy.toolTip!)
+        let copyLabel = L10n.text("재개 명령 복사", "Copy resume command")
+        copy.toolTip = preview ? previewHint : copyLabel
+        copy.setAccessibilityLabel(copyLabel)
         copy.isEnabled = !preview
         copy.identifier = NSUserInterfaceItemIdentifier("completion-copy")
         let openButton = CompletionButton("", symbol: "arrow.up.right", plain: true, action: open)
-        openButton.toolTip = L10n.text("세션 열기", "Open session")
-        openButton.setAccessibilityLabel(openButton.toolTip!)
+        let openLabel = L10n.text("세션 열기", "Open session")
+        openButton.toolTip = preview ? previewHint : openLabel
+        openButton.setAccessibilityLabel(openLabel)
         openButton.identifier = NSUserInterfaceItemIdentifier("completion-open")
         openButton.isEnabled = !preview
         let dismiss = CompletionButton("", symbol: "checkmark", prominent: true, action: acknowledge)

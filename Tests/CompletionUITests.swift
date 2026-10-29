@@ -9,7 +9,12 @@ import QuartzCore
     }
     guard let primary = NSScreen.screens.first else { throw CompletionError.unavailable }
     var primaryFrame = primary.visibleFrame
-    let panel = CompletionPanel(primaryVisibleFrame: { primaryFrame })
+    let secondaryFrame = NSRect(x: primaryFrame.maxX + 100, y: primaryFrame.minY, width: 1200, height: 800)
+    var screens = [primaryFrame, secondaryFrame]
+    let preferencesName = "AiQuotaBar.UITests.\(UUID().uuidString)"
+    let preferences = UserDefaults(suiteName: preferencesName)!
+    defer { preferences.removePersistentDomain(forName: preferencesName) }
+    let panel = CompletionPanel(visibleFrames: { screens }, preferences: preferences)
     // Exercise real windows without flashing test alerts on the user's desktop.
     panel.panel.alphaValue = 0
     panel.panel.ignoresMouseEvents = true
@@ -45,12 +50,29 @@ import QuartzCore
                "Completion uses its own transparent borderless floating window")
     try expect(panel.panel.collectionBehavior.contains(.fullScreenAuxiliary), "Full-screen auxiliary panel")
     try expect(primaryFrame.contains(panel.panel.frame), "Notification starts on the primary display")
-    panel.panel.setFrameOrigin(NSPoint(x: primaryFrame.maxX + 200, y: primaryFrame.minY))
+    let draggedOrigin = NSPoint(x: primaryFrame.maxX + 200, y: primaryFrame.minY)
+    panel.windowWillMove(Notification(name: NSWindow.willMoveNotification, object: panel.panel))
+    panel.panel.setFrameOrigin(draggedOrigin)
+    try expect(panel.panel.frame.origin == draggedOrigin, "Dragging across a display edge is not snapped back mid-drag")
     panel.show(events, animateNew: false)
-    try expect(primaryFrame.contains(panel.panel.frame), "A saved secondary-display position moves back to the primary display")
-    primaryFrame = primaryFrame.insetBy(dx: 45, dy: 45)
+    try expect(secondaryFrame.contains(panel.panel.frame), "Refreshing preserves the display chosen by dragging")
+    let movedFrame = panel.panel.frame
+    panel.show(Array(events.prefix(2)), animateNew: true)
+    try expect(secondaryFrame.contains(panel.panel.frame) && panel.panel.frame.minX == movedFrame.minX
+               && panel.panel.frame.maxY == movedFrame.maxY, "New alerts resize below the same position on the chosen display")
+    panel.showError("An unavailable session remains unread")
+    try expect(secondaryFrame.contains(panel.panel.frame), "Navigation errors stay on the chosen display")
+    panel.showError(nil)
+    panel.show(events, animateNew: false)
+    // Simulate a screen layout change while the secondary display remains connected.
+    screens = [primaryFrame.insetBy(dx: 45, dy: 45), secondaryFrame]
     NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
-    try expect(primaryFrame.contains(panel.panel.frame), "Display layout changes keep the notification inside the current primary display")
+    try expect(secondaryFrame.contains(panel.panel.frame), "Other display changes do not override the chosen monitor")
+    // Simulate disconnecting that display.
+    primaryFrame = primaryFrame.insetBy(dx: 45, dy: 45)
+    screens = [primaryFrame]
+    NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    try expect(primaryFrame.contains(panel.panel.frame), "Disconnecting the chosen display returns the panel to the primary display")
     let open = buttons.first { $0.identifier?.rawValue == "completion-open" }!
     open.performClick(nil)
     try expect(opened == "event-0" && dismissed == nil && !all, "Opening the correct session does not dismiss it")

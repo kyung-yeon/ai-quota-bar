@@ -86,7 +86,7 @@ The app searches standard Homebrew paths, `~/.local/bin`, the launch environment
 
 Launch AiQuotaBar to automatically connect installed Codex and Claude Code CLIs; no connection menu or setup dialog is required. Start a new agent session afterward. Codex still requires reviewing and trusting new hooks in `/hooks`. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
 
-Notifications appear on the macOS primary display, regardless of which monitor has the active app. Changing the primary display repositions the panel automatically.
+Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
 This is a custom floating window with compact 48-point cards, independent of macOS notification banners. Each card keeps the provider icon, project, session, completion time, and small action buttons. It swings three times around its top-right corner every 12 seconds until dismissed, respecting Reduce Motion. Use **Preview floating alert** in the menu to try it with sample data.
 
