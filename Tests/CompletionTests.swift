@@ -36,5 +36,26 @@ func completionTests() throws {
     try expect(nested.host == .cmux && nested.herdr?.pane == "w1:p2", "Herdr keeps its outer cmux destination")
     try expect(SessionDestination.capture(environment: ["TERM_PROGRAM":"vscode"]).host == .unsupported, "Do not guess unsupported IDE tab")
     try expect(SessionDestination.capture(environment: ["TMUX":"/tmp/tmux,1,0", "ITERM_SESSION_ID":"old"]).host == .unsupported, "Do not trust inherited outer IDs inside tmux")
+    try expect(SessionDestination.capture(environment: ["ORCA_TERMINAL_HANDLE":"term_abc"]).host == .orca, "Orca runtime-issued handle")
+    let configuration: [String: Any] = ["theme":"dark", "hooks":["Stop":[["hooks":[["type":"command", "command":"echo existing"]]]]]]
+    let original = try JSONSerialization.data(withJSONObject: configuration)
+    let installed = try HookInstaller.merged(original, provider: .claude, executable: "/Applications/Ai Quota's.app/Contents/MacOS/AiQuotaBar", remove: false)
+    let twice = try HookInstaller.merged(installed, provider: .claude, executable: "/Applications/Ai Quota's.app/Contents/MacOS/AiQuotaBar", remove: false)
+    try expect(installed == twice, "Hook setup is idempotent")
+    let removed = try HookInstaller.merged(installed, provider: .claude, executable: "/unused", remove: true)
+    let restored = try JSONSerialization.jsonObject(with: removed) as! NSDictionary
+    try expect(restored == configuration as NSDictionary, "Uninstall preserves unrelated settings and hooks")
+    for target in [SessionDestination(host: .warp, target:"https://evil.example"), SessionDestination(host: .warp, target:"warp://session/abc?command=oops"), SessionDestination(host: .orca, target:"--help"), SessionDestination(host: .kitty, target:"1", socket:"tcp:evil:123") ] {
+        do { try SessionNavigator.validate(target); try expect(false, "Unsafe navigation target rejected") }
+        catch CompletionError.unsupported { count += 1 }
+    }
+    let quoted = SessionNavigator.shellQuote("a'$(touch nope)")
+    let echoed = try SessionCommand.run("/bin/sh", ["-c", "printf %s " + quoted])
+    try expect(String(data: echoed, encoding: .utf8) == "a'$(touch nope)", "Resume command shell quoting is literal")
+    let binding = HerdrClientBinding(paneSocket: "/tmp/herdr.sock", processID: Int32(ProcessInfo.processInfo.processIdentifier),
+                                    processStart: "test-start", destination: SessionDestination(host: .iterm, target: "session"))
+    try expect(binding.matches(socket: "/tmp/herdr.sock", runningStart: "test-start"), "Herdr live attachment matches socket and process lifetime")
+    try expect(!binding.matches(socket: "/tmp/herdr.sock", runningStart: "reused-pid"), "Herdr cannot navigate a reused PID")
+    try expect(!binding.matches(socket: "/tmp/other.sock", runningStart: "test-start"), "Herdr named sessions stay independent")
     print("PASS: \(count) completion checks")
 }

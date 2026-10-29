@@ -82,6 +82,7 @@ enum TerminalHost: String, Codable {
 struct HerdrDestination: Codable, Equatable {
     let pane: String
     let socket: String
+    var socketIdentity: String?
 }
 
 struct SessionDestination: Codable, Equatable {
@@ -89,6 +90,9 @@ struct SessionDestination: Codable, Equatable {
     var target: String = ""
     var workspace: String?
     var socket: String?
+    var profile: String?
+    var terminalPID: Int32?
+    var terminalStart: String?
     var herdr: HerdrDestination?
     var label: String { herdr == nil ? host.name : "Herdr · \(host.name)" }
 
@@ -103,6 +107,7 @@ struct SessionDestination: Codable, Equatable {
             result.host = .cmux; result.target = surface; result.workspace = workspace
         } else if let handle = env["ORCA_TERMINAL_HANDLE"] {
             result.host = .orca; result.target = handle
+            result.profile = env["ORCA_USER_DATA_PATH"]
         } else if let id = env["ITERM_SESSION_ID"] {
             result.host = .iterm; result.target = id
         } else if let url = env["WARP_FOCUS_URL"] {
@@ -113,6 +118,8 @@ struct SessionDestination: Codable, Equatable {
             result.host = .kitty; result.target = pane; result.socket = socket
         } else if env["TERM_PROGRAM"] == "Apple_Terminal", let tty = env["AIQUOTABAR_TTY"] {
             result.host = .terminal; result.target = tty
+            result.terminalPID = env["AIQUOTABAR_TTY_PID"].flatMap(Int32.init)
+            result.terminalStart = env["AIQUOTABAR_TTY_START"]
         }
         return result
     }

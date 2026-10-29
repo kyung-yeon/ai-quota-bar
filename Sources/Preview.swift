@@ -1,6 +1,32 @@
 import AppKit
 
 enum Preview {
+    @MainActor static func completions(path: String) {
+        let panel = CompletionPanel()
+        let projects = ["website", "mobile-app", "api-service", "design-system", "docs"]
+        let names = ["Update account settings", "Review accessibility", "Add integration tests", "Polish components", "Update guide"]
+        var demo: [CompletionEvent] = []
+        for index in 0..<5 {
+            let provider = index % 2 == 0 ? "codex" : "claude"
+            let destination = SessionDestination(host: index % 2 == 0 ? .cmux : .orca, target: "demo")
+            let completedAt = Date().addingTimeInterval(Double(-index * 75))
+            demo.append(CompletionEvent(id: "demo-\(index)", providerID: provider, sessionID: "sample-session-\(index)",
+                project: projects[index], directory: "/projects/sample", sessionName: names[index], completedAt: completedAt, destination: destination))
+        }
+        panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
+        panel.show(demo, animateNew: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        guard let view = panel.panel.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        if let data = bitmap.representation(using: .png, properties: [:]) {
+            do { try data.write(to: URL(fileURLWithPath: path)); print("Completion preview: \(path)") }
+            catch { fputs("Preview write failed\n", stderr) }
+        }
+        panel.panel.orderOut(nil)
+    }
+
     static func sampleStates() -> [Provider: ProviderState] {
         let now = Date()
         let reset = now.addingTimeInterval(6 * 86400).timeIntervalSince1970
