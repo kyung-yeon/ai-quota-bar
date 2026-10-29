@@ -1,18 +1,25 @@
 import AppKit
 
 enum Preview {
-    @MainActor static func completions(path: String) {
-        let panel = CompletionPanel()
-        let projects = ["website", "mobile-app", "api-service", "design-system", "docs"]
-        let names = ["Update account settings", "Review accessibility", "Add integration tests", "Polish components", "Update guide"]
+    static func completionEvents() -> [CompletionEvent] {
+        let projects = ["website", "api-service"]
+        let names = [L10n.text("계정 설정 화면 개선", "Update account settings"), L10n.text("API 통합 테스트 추가", "Add API integration tests")]
         var demo: [CompletionEvent] = []
-        for index in 0..<5 {
+        for index in projects.indices {
             let provider = index % 2 == 0 ? "codex" : "claude"
             let destination = SessionDestination(host: index % 2 == 0 ? .cmux : .orca, target: "demo")
             let completedAt = Date().addingTimeInterval(Double(-index * 75))
             demo.append(CompletionEvent(id: "demo-\(index)", providerID: provider, sessionID: "sample-session-\(index)",
                 project: projects[index], directory: "/projects/sample", sessionName: names[index], completedAt: completedAt, destination: destination))
         }
+        return demo
+    }
+
+    @MainActor static func completions(path: String) {
+        let panel = CompletionPanel()
+        panel.panel.alphaValue = 0
+        panel.panel.ignoresMouseEvents = true
+        let demo = completionEvents()
         panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
         panel.show(demo, animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))

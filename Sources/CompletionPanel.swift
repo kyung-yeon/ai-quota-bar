@@ -1,183 +1,222 @@
 import AppKit
 import QuartzCore
 
-private final class CompletionButton: NSButton {
-    var perform: (() -> Void)?
-    convenience init(_ title: String, action: @escaping () -> Void) {
-        self.init(title: title, target: nil, action: nil)
-        self.perform = action; self.target = self; self.action = #selector(invoke)
-        bezelStyle = .rounded
-        font = .systemFont(ofSize: 11)
-    }
-    @objc private func invoke() { perform?() }
-}
-
 private final class CompletionList: NSStackView {
     override var isFlipped: Bool { true }
 }
 
-final class CompletionCard: NSView {
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        }
-    }
-    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
-    init(event: CompletionEvent, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 12
-        let icon = NSImageView()
-        icon.image = ProviderIcon.image(event.provider, size: 20)
-        icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        let provider = Self.label(event.provider.name + " · " + event.destination.label, size: 11, color: .secondaryLabelColor)
-        let header = NSStackView(views: [icon, provider]); header.spacing = 8
-        let title = CompletionButton(event.project, action: open)
-        title.isBordered = false; title.alignment = .left
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.lineBreakMode = .byTruncatingTail
-        title.toolTip = event.directory
-        title.setAccessibilityLabel(L10n.text("\(event.project) 세션 열기", "Open \(event.project) session"))
-        let session = Self.label(event.sessionName, size: 12)
-        let time = Self.label(L10n.text("응답 완료 · ", "Response finished · ") + dateText(event.completedAt.timeIntervalSince1970, format: "MMMdjms"), size: 11, color: .secondaryLabelColor)
-        let buttons = NSStackView(views: [
-            CompletionButton(L10n.text("세션 열기", "Open session"), action: open),
-            CompletionButton(L10n.text("재개 명령 복사", "Copy resume")) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(SessionNavigator.resumeCommand(event), forType: .string)
-            },
-            CompletionButton(L10n.text("확인", "Dismiss"), action: acknowledge)
-        ])
-        buttons.spacing = 7
-        let stack = NSStackView(views: [header, title, session, time, buttons])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 7
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            title.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            provider.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -28),
-            session.widthAnchor.constraint(equalTo: stack.widthAnchor)
-        ])
-        setAccessibilityElement(false)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    static func label(_ text: String, size: CGFloat, color: NSColor = .labelColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size); field.textColor = color
-        field.lineBreakMode = .byTruncatingTail; field.toolTip = text
-        return field
-    }
+private final class CompletionWindow: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
+    private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
     private let list = CompletionList()
-    private let scroll = NSScrollView()
-    private let heading = CompletionCard.label("", size: 14)
+    private let stack = NSStackView()
+    private let pagination = NSStackView()
+    private let pageLabel = CompletionCard.label("", size: 11, color: .secondaryLabelColor)
+    private let previous = CompletionButton("", symbol: "chevron.left", plain: true, action: {})
+    private let next = CompletionButton("", symbol: "chevron.right", plain: true, action: {})
+    private var displayedEvents: [CompletionEvent] = []
+    private var isPreview = false
+    private var pageIndex = 0
+    private var pageSize = 3
+    private let heading = CompletionCard.label("", size: 13)
+    private let badge = CompletionCard.label("", size: 12)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let dismissAll: CompletionButton
     private var pulse: Timer?
     private var observers: [NSObjectProtocol] = []
     private var count = 0
     private let primaryVisibleFrame: () -> NSRect?
+    private let reduceMotion: () -> Bool
     private var positioning = false
+    private let motionKey = "completionAttention"
+    static let animationInset: CGFloat = 24
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
     var onAcknowledgeAll: (() -> Void)?
+    var onPreview: (() -> Void)?
+    var activeWiggle: CAAnimation? { chrome.layer?.animation(forKey: motionKey) }
 
-    init(primaryVisibleFrame: @escaping () -> NSRect? = { NSScreen.screens.first?.visibleFrame }) {
+    init(primaryVisibleFrame: @escaping () -> NSRect? = { NSScreen.screens.first?.visibleFrame },
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.primaryVisibleFrame = primaryVisibleFrame
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 390, height: 260), styleMask: [.titled, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: false)
-        dismissAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), action: {})
+        self.reduceMotion = reduceMotion
+        panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        dismissAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), plain: true, action: {})
         super.init()
         panel.delegate = self
         panel.title = L10n.text("AiQuotaBar 완료 알림", "AiQuotaBar completions")
-        panel.titleVisibility = .hidden; panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false; panel.backgroundColor = .clear
         panel.isMovableByWindowBackground = true
-        panel.isFloatingPanel = true; panel.level = .floating; panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = true; panel.level = .statusBar; panel.hidesOnDeactivate = false
+        panel.canHide = false
         panel.becomesKeyOnlyIfNeeded = true; panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
         panel.setFrameAutosaveName("CompletionPanel")
-        let visual = NSVisualEffectView()
-        visual.material = .popover; visual.blendingMode = .behindWindow; visual.state = .active
-        visual.wantsLayer = true
-        panel.contentView = visual
+        let canvas = NSView()
+        canvas.wantsLayer = true
+        panel.contentView = canvas
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        canvas.addSubview(chrome)
         dismissAll.perform = { [weak self] in self?.onAcknowledgeAll?() }
-        let header = NSStackView(views: [heading, NSView(), dismissAll]); header.spacing = 8
-        header.translatesAutoresizingMaskIntoConstraints = false
+        dismissAll.controlSize = .small
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        badge.font = .systemFont(ofSize: 11, weight: .semibold)
+        badge.alignment = .center
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        let pill = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
+        pill.addSubview(badge)
+        let header = NSStackView(views: [heading, pill, NSView(), dismissAll]); header.spacing = 8
+        previous.identifier = NSUserInterfaceItemIdentifier("completion-previous-page")
+        next.identifier = NSUserInterfaceItemIdentifier("completion-next-page")
+        previous.setAccessibilityLabel(L10n.text("이전 알림", "Previous completions"))
+        next.setAccessibilityLabel(L10n.text("다음 알림", "Next completions"))
+        previous.perform = { [weak self] in self?.changePage(-1) }
+        next.perform = { [weak self] in self?.changePage(1) }
+        [NSView(), previous, pageLabel, next, NSView()].forEach { pagination.addArrangedSubview($0) }
+        pagination.spacing = 12; pagination.isHidden = true
         errorLabel.font = .systemFont(ofSize: 11); errorLabel.textColor = .systemOrange
-        errorLabel.maximumNumberOfLines = 3
-        errorLabel.translatesAutoresizingMaskIntoConstraints = false
-        list.orientation = .vertical; list.alignment = .leading; list.spacing = 10
+        errorLabel.maximumNumberOfLines = 3; errorLabel.isHidden = true
+        list.orientation = .vertical; list.alignment = .leading; list.spacing = 6
         list.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = list
-        scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        visual.addSubview(header); visual.addSubview(scroll); visual.addSubview(errorLabel)
+        [header, list, pagination, errorLabel].forEach { stack.addArrangedSubview($0) }
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(stack)
         NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: visual.leadingAnchor, constant: 16),
-            header.trailingAnchor.constraint(equalTo: visual.trailingAnchor, constant: -16),
-            header.topAnchor.constraint(equalTo: visual.topAnchor, constant: 16),
-            scroll.leadingAnchor.constraint(equalTo: visual.leadingAnchor, constant: 10),
-            scroll.trailingAnchor.constraint(equalTo: visual.trailingAnchor, constant: -10),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
-            scroll.bottomAnchor.constraint(equalTo: errorLabel.topAnchor, constant: -8),
-            errorLabel.leadingAnchor.constraint(equalTo: visual.leadingAnchor, constant: 16),
-            errorLabel.trailingAnchor.constraint(equalTo: visual.trailingAnchor, constant: -16),
-            errorLabel.bottomAnchor.constraint(equalTo: visual.bottomAnchor, constant: -10),
-            list.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            list.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            list.topAnchor.constraint(equalTo: scroll.contentView.topAnchor)
+            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.animationInset),
+            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.animationInset),
+            chrome.topAnchor.constraint(equalTo: canvas.topAnchor, constant: Self.animationInset),
+            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -Self.animationInset),
+            stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -10),
+            pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 24), pill.heightAnchor.constraint(equalToConstant: 20),
+            pill.widthAnchor.constraint(equalTo: badge.widthAnchor, constant: 12),
+            badge.centerXAnchor.constraint(equalTo: pill.centerXAnchor), badge.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            list.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pagination.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.position() }
         })
-        pulse = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.animate() }
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.reduceMotion() == true { self?.stopAnimation() } }
+        })
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    if self?.panel.isVisible == true { self?.panel.orderFrontRegardless() }
+                }
+            })
         }
+        pulse = Timer.scheduledTimer(withTimeInterval: CompletionMotion.interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.updateTime() }
+                self?.animate()
+            }
+        }
+        pulse?.tolerance = 0.5
     }
 
-    func show(_ events: [CompletionEvent], animateNew: Bool) {
+    func show(_ events: [CompletionEvent], animateNew: Bool, preview: Bool = false) {
         count = events.count
-        heading.stringValue = L10n.text("완료된 응답 \(events.count)개", "\(events.count) finished responses")
-        list.arrangedSubviews.forEach { list.removeArrangedSubview($0); $0.removeFromSuperview() }
-        // All unread events stay in the store; keep the live view bounded and expose the next batch on dismissal.
-        for event in events.prefix(100) {
-            let card = CompletionCard(event: event, open: { [weak self] in self?.onOpen?(event) }, acknowledge: { [weak self] in self?.onAcknowledge?(event.id) })
-            list.addArrangedSubview(card)
-            card.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
-        }
-        if events.count > 100 {
-            list.addArrangedSubview(CompletionCard.label(L10n.text("최근 100개 표시 · 확인하면 다음 항목이 표시됩니다.", "Showing newest 100 · dismiss to see older items."), size: 10))
-        }
-        guard !events.isEmpty else { panel.orderOut(nil); return }
+        displayedEvents = events
+        isPreview = preview
+        if animateNew { pageIndex = 0 }
+        clearList()
+        guard !events.isEmpty else { stopAnimation(); panel.orderOut(nil); return }
+        heading.stringValue = preview ? L10n.text("미리보기 · 예시 데이터", "Preview · Sample data")
+            : L10n.text("응답 완료", "Completed")
+        badge.stringValue = "\(events.count)"
+        dismissAll.title = L10n.text("모두 확인", "Dismiss all")
+        renderPage()
         position()
         panel.orderFrontRegardless()
+        panel.contentView?.layoutSubtreeIfNeeded()
         if animateNew { animate() }
     }
 
+    private func renderPage() {
+        clearList(resetError: false)
+        let pages = max(1, (count + pageSize - 1) / pageSize)
+        pageIndex = min(max(0, pageIndex), pages - 1)
+        pagination.isHidden = pages == 1
+        pageLabel.stringValue = "\(pageIndex + 1) / \(pages)"
+        previous.isEnabled = pageIndex > 0
+        next.isEnabled = pageIndex + 1 < pages
+        for event in displayedEvents.dropFirst(pageIndex * pageSize).prefix(pageSize) {
+            let card = CompletionCard(event: event, preview: isPreview, open: { [weak self] in self?.onOpen?(event) },
+                                      acknowledge: { [weak self] in self?.onAcknowledge?(event.id) })
+            addRow(card)
+        }
+    }
+
+    private func changePage(_ offset: Int) {
+        pageIndex += offset
+        renderPage()
+        position()
+    }
+
+    func showEmpty(_ message: String) {
+        count = 0; displayedEvents = []; stopAnimation(); clearList()
+        pagination.isHidden = true
+        heading.stringValue = L10n.text("완료 알림 대기 중", "Waiting for completions")
+        badge.stringValue = "0"
+        let text = NSTextField(wrappingLabelWithString: message)
+        text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
+        addRow(text)
+        addRow(CompletionButton(L10n.text("플로팅 미리보기", "Preview floating alert"), symbol: "play.fill") { [weak self] in self?.onPreview?() })
+        dismissAll.title = L10n.text("닫기", "Close")
+        position()
+        panel.orderFrontRegardless()
+    }
+
     func showError(_ message: String?) {
-        errorLabel.stringValue = message ?? ""
-        if message != nil { position(); panel.orderFrontRegardless() }
+        errorLabel.stringValue = message ?? ""; errorLabel.isHidden = message == nil
+        if panel.isVisible || message != nil { position() }
+        if message != nil { panel.orderFrontRegardless() }
+    }
+
+    private func clearList(resetError: Bool = true) {
+        if resetError { errorLabel.isHidden = true; errorLabel.stringValue = "" }
+        list.arrangedSubviews.forEach { list.removeArrangedSubview($0); $0.removeFromSuperview() }
+    }
+    private func addRow(_ view: NSView) {
+        list.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
     }
 
     private func position() {
-        // NSScreen.main follows keyboard focus; screens.first is macOS's primary display.
         guard !positioning, let screenFrame = primaryVisibleFrame() else { return }
         positioning = true
         defer { positioning = false }
-        let visible = screenFrame.insetBy(dx: 12, dy: 12)
-        let height = min(visible.height, CGFloat(min(count, 3)) * 165 + 100)
+        stopAnimation()
+        let visible = screenFrame.insetBy(dx: 8, dy: 8)
+        let width = min(432 + Self.animationInset * 2, visible.width)
+        if count > 0 {
+            let capacity = min(3, max(1, Int((visible.height - 120) / 54)))
+            if capacity != pageSize { pageSize = capacity; renderPage() }
+        }
+        panel.setContentSize(NSSize(width: width, height: panel.frame.height))
+        // Measure the actual card layout so there is no clipped content or internal scrolling.
+        var height = ceil(stack.fittingSize.height + 18 + Self.animationInset * 2)
+        while height > visible.height && pageSize > 1 && count > 0 {
+            pageSize -= 1
+            renderPage()
+            height = ceil(stack.fittingSize.height + 18 + Self.animationInset * 2)
+        }
+        height = min(height, visible.height)
         let saved = UserDefaults.standard.bool(forKey: "completionPanelMoved")
         let old = panel.frame
-        let width = min(390, visible.width)
         let x = saved ? min(max(old.minX, visible.minX), visible.maxX - width) : visible.maxX - width
         let y = saved ? min(max(old.maxY - height, visible.minY), visible.maxY - height) : visible.maxY - height
         panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
@@ -187,11 +226,9 @@ final class CompletionCard: NSView {
         if NSEvent.pressedMouseButtons != 0 { UserDefaults.standard.set(true, forKey: "completionPanelMoved") }
         if let primary = primaryVisibleFrame(), !primary.contains(panel.frame) { position() }
     }
-
-    private func animate() {
-        guard count > 0, panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let movement = CAKeyframeAnimation(keyPath: "transform.translation.x")
-        movement.values = [0, -4, 4, -3, 3, 0]; movement.duration = 0.5
-        panel.contentView?.layer?.add(movement, forKey: "completionAttention")
+    func animate() {
+        guard count > 0, panel.isVisible, !reduceMotion(), activeWiggle == nil else { return }
+        chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size), forKey: motionKey)
     }
+    private func stopAnimation() { chrome.layer?.removeAnimation(forKey: motionKey) }
 }

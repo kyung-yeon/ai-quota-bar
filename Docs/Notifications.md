@@ -2,7 +2,11 @@
 
 AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards float above other apps on the macOS primary display, appear across Spaces (including full-screen spaces), and remain until you choose **Dismiss** or **Dismiss all**. Drag the panel within the primary display; its position is remembered. A previous position on another display is moved back, and changing the primary display or disconnecting a monitor repositions the panel.
 
-Each card shows the provider, terminal, project, session label, and completion time. Clicking the project or **Open session** targets the original session. Opening a session does **not** dismiss its card. New cards animate briefly, with a small reminder every 15 seconds; macOS **Reduce motion** disables these movements. Longer lists scroll.
+The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each compact 48-point card shows a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. The copy icon copies the resume command; **✓ Dismiss** acknowledges the card. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. Up to three cards fit on a page (fewer on a small display); previous/next buttons expose the rest.
+
+The entire panel swings three times by ±3° around its top-right corner when new completions arrive and every 12 seconds afterward. Each movement takes 0.11 seconds. Dismissal stops the animation; macOS **Reduce motion** disables it, including when enabled while the animation is running.
+
+Choose **Preview floating alert** in the menu to see and dismiss two clearly marked sample cards without running an agent. Preview cards are never stored, never count as unread completions, and have session navigation and command copying disabled. Real incoming completions replace the preview. **Show completions** also uses the custom panel when the inbox is empty.
 
 <img src="../Assets/screenshots/completions-en.png" alt="Completion cards for fictional Codex and Claude Code sessions" width="390">
 
@@ -82,7 +86,7 @@ Before switching to this advanced integration, run `--remove-completion-hooks co
 
 ## Local data and troubleshooting
 
-`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, and local Herdr bindings. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. Unread cards never expire; acknowledged event IDs are kept for 90 days to prevent replay after restart. The panel renders up to 100 unread cards at once; dismissing reveals older entries.
+`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, and local Herdr bindings. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. Unread cards never expire; acknowledged event IDs are kept for 90 days to prevent replay after restart. All unread cards remain available through page controls; the panel fits its current page without scrolling.
 
 - **No cards:** check the configuration path, start a new session, review Codex `/hooks`, and ensure hooks are not globally disabled. Test from the same profile used by the agent manager.
 - **No direct navigation:** use **Copy resume**; check the table above, Automation permissions, and whether the original tab still exists. For Herdr, attach through `--run-herdr`.

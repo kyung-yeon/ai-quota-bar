@@ -88,6 +88,8 @@ Launch AiQuotaBar to automatically connect installed Codex and Claude Code CLIs;
 
 Notifications appear on the macOS primary display, regardless of which monitor has the active app. Changing the primary display repositions the panel automatically.
 
+This is a custom floating window with compact 48-point cards, independent of macOS notification banners. Each card keeps the provider icon, project, session, completion time, and small action buttons. It swings three times around its top-right corner every 12 seconds until dismissed, respecting Reduce Motion. Use **Preview floating alert** in the menu to try it with sample data.
+
 Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets offer a copyable resume command. Automatic setup preserves existing hooks and backs up changed configuration files. Missing tools are skipped and detected after installation; invalid or disabled hook settings are left intact and shown as a connection issue.
 
 See the [completion notification guide](Docs/Notifications.md) for supported versions and environments, Herdr setup, custom profiles, completion semantics, and local data retention. This feature is available in source builds and is not yet in the published v0.1.0 DMG.

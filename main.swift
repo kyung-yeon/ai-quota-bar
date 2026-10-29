@@ -18,7 +18,11 @@ if CommandLine.arguments.contains("--help") {
       --run-herdr [--session NAME]            Attach Herdr and remember this terminal
       --self-test                            Run offline tests
       --preview-completions FILE             Render a sample notification panel
+      --show-completion-preview              Show sample cards in the running app
     """)
+} else if CommandLine.arguments.contains("--show-completion-preview") {
+    DistributedNotificationCenter.default().postNotificationName(
+        NSNotification.Name("local.kyungyeon.ai-quota-bar.preview"), object: nil, userInfo: nil, options: .deliverImmediately)
 } else if CommandLine.arguments.contains("--install-completion-hooks") || CommandLine.arguments.contains("--remove-completion-hooks") {
     let remove = CommandLine.arguments.contains("--remove-completion-hooks")
     guard let name = argument(after: remove ? "--remove-completion-hooks" : "--install-completion-hooks"), let provider = Provider(rawValue: name), let executable = Bundle.main.executableURL?.path else { exit(64) }

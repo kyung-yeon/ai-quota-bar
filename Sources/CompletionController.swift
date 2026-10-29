@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor final class CompletionController {
     private let store: CompletionStore
-    private let panel = CompletionPanel()
+    private let panel: CompletionPanel
     private var timer: Timer?
     private var loading = false
     private var connecting = false
@@ -10,17 +10,24 @@ import AppKit
     private let connect: @Sendable () -> [Provider: HookConnectionState]
     private(set) var connectionStates: [Provider: HookConnectionState] = [:]
     private var events: [CompletionEvent] = []
+    private var previewEvents: [CompletionEvent]?
     var onCountChanged: ((Int) -> Void)?
     var onConnectionChanged: (() -> Void)?
     var unreadCount: Int { events.count }
 
-    init(store: CompletionStore = .standard, connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
+    init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
         guard let executable = Bundle.main.executableURL?.path else { return [:] }
         return HookInstaller.connectAvailable(executable: executable)
     }) {
         self.store = store
+        self.panel = panel ?? CompletionPanel()
         self.connect = connect
+        let panel = self.panel
         panel.onOpen = { [weak self] event in
+            if self?.previewEvents != nil {
+                self?.panel.showError(L10n.text("미리보기 항목은 실제 세션과 연결되지 않습니다.", "Preview items are not connected to real sessions."))
+                return
+            }
             Task { @MainActor in
                 do { try await SessionNavigator.open(event.destination); self?.panel.showError(nil) }
                 catch { self?.panel.showError(error.localizedDescription) }
@@ -28,6 +35,7 @@ import AppKit
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onAcknowledgeAll = { [weak self] in self?.acknowledge(nil) }
+        panel.onPreview = { [weak self] in self?.showPreview() }
     }
 
     func start() {
@@ -43,13 +51,15 @@ import AppKit
     }
 
     func show() {
+        previewEvents = nil
         panel.show(events, animateNew: false)
-        if events.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = L10n.text("미확인 완료 알림이 없습니다.", "No unread completions.")
-            alert.informativeText = connectionSummary
-            alert.runModal()
-        }
+        if events.isEmpty { panel.showEmpty(connectionSummary) }
+    }
+
+    func showPreview() {
+        let samples = Preview.completionEvents()
+        previewEvents = samples
+        panel.show(samples, animateNew: true, preview: true)
     }
 
     private var connectionSummary: String {
@@ -95,6 +105,7 @@ import AppKit
                 guard let self else { return }
                 let newIDs = Set(current.map(\.id)).subtracting(self.events.map(\.id))
                 if current != self.events {
+                    self.previewEvents = nil
                     self.events = current
                     self.panel.show(current, animateNew: !newIDs.isEmpty)
                     self.onCountChanged?(current.count)
@@ -104,6 +115,13 @@ import AppKit
     }
 
     private func acknowledge(_ id: String?) {
+        if let preview = previewEvents {
+            let remaining = id.map { id in preview.filter { $0.id != id } } ?? []
+            previewEvents = remaining.isEmpty ? nil : remaining
+            panel.show(remaining.isEmpty ? events : remaining, animateNew: false, preview: !remaining.isEmpty)
+            return
+        }
+        if events.isEmpty { panel.show([], animateNew: false); return }
         let store = self.store
         let ids = id.map { Set([$0]) } ?? Set(events.map(\.id))
         Task { @MainActor [weak self] in

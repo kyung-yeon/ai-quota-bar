@@ -129,6 +129,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     private let menu = NSMenu()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var previewObserver: NSObjectProtocol?
     private var states = Dictionary(uniqueKeysWithValues: Provider.allCases.map { ($0, ProviderState()) })
     private var menuOpen = false
     private var cardItems: [Provider: NSMenuItem] = [:]
@@ -146,6 +147,9 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
             completions.onCountChanged = { [weak self] _ in self?.render() }
             completions.onConnectionChanged = { [weak self] in self?.render() }
             completions.start()
+            previewObserver = DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name("local.kyungyeon.ai-quota-bar.preview"), object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.completions?.showPreview() } }
         }
         render()
         refresh()
@@ -261,6 +265,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         info.isEnabled = false
         menu.addItem(info)
         _ = action(L10n.text("완료 알림 보기", "Show completions") + " (\(completions?.unreadCount ?? 0))", #selector(showCompletions))
+        _ = action(L10n.text("플로팅 미리보기", "Preview floating alert"), #selector(showCompletionPreview))
         if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
             _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
         }
@@ -283,6 +288,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     }
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
     @objc private func showCompletions() { completions?.show() }
+    @objc private func showCompletionPreview() { completions?.showPreview() }
     @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }
