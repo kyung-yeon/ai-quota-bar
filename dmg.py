@@ -20,10 +20,29 @@ def stage_release(folder, binary):
     folder.mkdir(parents=True)
     app = package(binary=binary, destination=folder / "AiQuotaBar.app", portable=True)
     (folder / "Applications").symlink_to("/Applications", target_is_directory=True)
-    shutil.copy2(ROOT / "Docs/Install.txt", folder / "Install.txt")
-    shutil.copy2(ROOT / "Docs/Install.ko.txt", folder / "Install.ko.txt")
-    shutil.copy2(ROOT / "LICENSE", folder / "LICENSE.txt")
+    (folder / ".background").mkdir()
+    shutil.copy2(ROOT / "Assets/installer/background.tiff", folder / ".background/background.tiff")
     return app
+
+
+def verify_layout(folder):
+    layout = folder / ".DS_Store"
+    if not layout.is_file() or layout.stat().st_size == 0:
+        raise ValueError("Missing saved Finder layout")
+    if not (folder / ".background/background.tiff").is_file():
+        raise ValueError("Missing installer background")
+
+
+def style_image(image, mountpoint):
+    try:
+        subprocess.run(["/usr/bin/hdiutil", "attach", str(image), "-nobrowse", "-mountpoint", str(mountpoint)], check=True)
+        subprocess.run([
+            "/usr/bin/osascript", str(ROOT / "Tools/layout-dmg.applescript"), str(mountpoint)
+        ], check=True, timeout=90)
+        verify_layout(mountpoint)
+    finally:
+        if os.path.ismount(mountpoint):
+            subprocess.run(["/usr/bin/hdiutil", "detach", str(mountpoint)], check=True)
 
 
 def verify_image(image, mountpoint):
@@ -33,10 +52,17 @@ def verify_image(image, mountpoint):
         app = mountpoint / "AiQuotaBar.app"
         subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)], check=True)
         verify_universal(app / "Contents/MacOS/AiQuotaBar")
+        verify_layout(mountpoint)
+        subprocess.run([
+            "/usr/bin/osascript", str(ROOT / "Tools/verify-dmg-layout.applescript"), str(mountpoint)
+        ], check=True, timeout=30)
+        visible = {item.name for item in mountpoint.iterdir() if not item.name.startswith(".")}
+        if visible != {"AiQuotaBar.app", "Applications"}:
+            raise ValueError(f"Unexpected visible installer items: {visible}")
         if os.readlink(mountpoint / "Applications") != "/Applications":
             raise ValueError("Missing Applications shortcut")
-        for name in ["Install.txt", "Install.ko.txt", "LICENSE.txt"]:
-            if not (mountpoint / name).is_file():
+        for name in ["Documentation/Install.txt", "Documentation/Install.ko.txt", "LICENSE"]:
+            if not (app / "Contents/Resources" / name).is_file():
                 raise ValueError(f"Missing installation document: {name}")
         for name in ["codex-path.txt", "claude-path.txt"]:
             if (app / "Contents/Resources" / name).exists():
@@ -58,11 +84,14 @@ def build_dmg():
         workspace = Path(temporary)
         stage = workspace / "contents"
         stage_release(stage, binary)
+        writable = workspace / "layout.dmg"
         image = workspace / destination.name
         subprocess.run([
             "/usr/bin/hdiutil", "create", "-volname", f"AiQuotaBar {version}",
-            "-srcfolder", str(stage), "-fs", "HFS+", "-format", "UDZO", str(image)
+            "-srcfolder", str(stage), "-fs", "HFS+", "-format", "UDRW", str(writable)
         ], check=True)
+        style_image(writable, workspace / "layout")
+        subprocess.run(["/usr/bin/hdiutil", "convert", str(writable), "-format", "UDZO", "-o", str(image)], check=True)
         verify_image(image, workspace / "mounted")
         # Keep any previous artifact until the replacement has passed verification.
         shutil.copy2(image, destination)

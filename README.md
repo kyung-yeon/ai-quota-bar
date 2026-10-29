@@ -31,7 +31,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 2. Eject the DMG, then open AiQuotaBar from Applications.
 3. Click its menu bar icons to see your usage. It does not appear in the Dock.
 
-The same DMG contains Apple Silicon and Intel executables, plus English and Korean installation guides. To start it at login, add the installed app under **System Settings → General → Login Items → Open at Login**. Drag-and-drop installation does not register a login item automatically.
+The DMG opens a compact installation window with AiQuotaBar on the left and Applications on the right. Follow the arrow to copy the app. The same app supports Apple Silicon and Intel; English and Korean installation guides are included inside its bundle. To start it at login, add the installed app under **System Settings → General → Login Items → Open at Login**. Drag-and-drop installation does not register a login item automatically.
 
 **Updating an existing installation:** quit AiQuotaBar and replace the app in its existing folder. If you previously used `make install`, replace `~/Applications/AiQuotaBar.app` there to preserve its login item. Avoid keeping another copy in `/Applications`.
 
@@ -116,7 +116,7 @@ Build a distributable DMG:
 make dmg
 ```
 
-This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-0.1.0-universal.dmg` with its `.dmg.sha256` checksum. The build verifies the disk image, mounts it read-only, checks both executable architectures and the app signature, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`; installation guides are in `Docs/`.
+This compiles both architectures, creates a portable bundle, and produces `dist/AiQuotaBar-0.1.0-universal.dmg` with its `.dmg.sha256` checksum. The build uses Finder to save the window size, background, and icon positions before compressing the image, so run it in a logged-in macOS desktop session. Allow your terminal to control Finder if macOS asks. The build verifies the disk image, mounts it read-only, checks both executable architectures, the app signature, and the saved layout, runs offline tests from the mounted app, and ejects it. It does not install or launch the menu bar app. Release packaging lives in `dmg.py`, layout tools in `Tools/`, and installation guides in `Docs/`.
 
 ## Stop automatic launch or uninstall
 

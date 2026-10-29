@@ -30,10 +30,27 @@ class DiskImageTests(unittest.TestCase):
                 app = dmg.stage_release(stage, binary)
             self.assertEqual((stage / "Applications").readlink(), Path("/Applications"))
             self.assertTrue((app / "Contents/MacOS/AiQuotaBar").is_file())
-            self.assertTrue((stage / "Install.txt").is_file())
-            self.assertTrue((stage / "Install.ko.txt").is_file())
-            self.assertTrue((stage / "LICENSE.txt").is_file())
+            self.assertEqual({item.name for item in stage.iterdir() if not item.name.startswith(".")}, {"AiQuotaBar.app", "Applications"})
+            self.assertTrue((app / "Contents/Resources/Documentation/Install.txt").is_file())
+            self.assertTrue((app / "Contents/Resources/Documentation/Install.ko.txt").is_file())
+            self.assertTrue((app / "Contents/Resources/LICENSE").is_file())
+            self.assertTrue((stage / ".background/background.tiff").is_file())
             self.assertFalse((app / "Contents/Resources/codex-path.txt").exists())
+
+    def test_missing_finder_layout_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / ".background").mkdir()
+            (folder / ".background/background.tiff").write_bytes(b"background")
+            with self.assertRaisesRegex(ValueError, "Finder layout"):
+                dmg.verify_layout(folder)
+
+    def test_missing_installer_background_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            (folder / ".DS_Store").write_bytes(b"saved Finder layout")
+            with self.assertRaisesRegex(ValueError, "background"):
+                dmg.verify_layout(folder)
 
 
 if __name__ == "__main__":
