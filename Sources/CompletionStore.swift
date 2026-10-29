@@ -10,7 +10,6 @@ struct CompletionState: Codable {
 
 struct CompletionContext: Codable {
     var turn: String
-    var destination: SessionDestination
     var updatedAt: Date
 }
 
@@ -47,15 +46,13 @@ struct CompletionStore {
         let captured = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
         try update { state in
             if name == "SessionStart" || name == "UserPromptSubmit" {
-                var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, destination: captured, updatedAt: Date())
+                var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, updatedAt: Date())
                 if name == "UserPromptSubmit" { context.turn = payload["prompt_id"] as? String ?? UUID().uuidString }
-                context.destination = captured
                 context.updatedAt = Date()
                 if state.contexts == nil { state.contexts = [:] }
                 state.contexts?[key] = context
             } else if var event = try CompletionEvent.decode(data, provider: provider, environment: environment, fallbackToken: state.contexts?[key]?.turn) {
                 event.destination = captured
-                if captured.host == .unsupported, captured.herdr == nil, let saved = state.contexts?[key]?.destination, saved.herdr == nil { event.destination = saved }
                 if !state.events.contains(where: { $0.id == event.id }) { state.events.append(event) }
             }
         }

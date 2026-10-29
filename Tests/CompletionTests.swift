@@ -26,6 +26,10 @@ func completionTests() throws {
     try expect(try store.load().unread.count == 1, "Same turn identifier in another session is independent")
     try store.acknowledgeAll()
     try expect(try store.load().unread.isEmpty, "Acknowledge all")
+    let newest = try CompletionEvent.decode(Data(#"{"type":"agent-turn-complete","thread-id":"session-b","turn-id":"turn-2","cwd":"/projects/example"}"#.utf8), provider: .codex, environment: [:])!
+    try store.record(newest)
+    try store.acknowledge(Set([other.id]))
+    try expect(try store.load().unread.map(\.id) == [newest.id], "Confirming a snapshot does not dismiss a concurrently arriving event")
     for kind in ["SessionStart", "SessionEnd", "SubagentStop", "Interrupt", "StopFailure"] {
         let data = try JSONSerialization.data(withJSONObject: ["hook_event_name": kind, "session_id": "s", "cwd": "/p"])
         try expect(try CompletionEvent.decode(data, provider: .claude, environment: [:]) == nil, "\(kind) is not a completion")
@@ -37,7 +41,9 @@ func completionTests() throws {
     try expect(SessionDestination.capture(environment: ["TERM_PROGRAM":"vscode"]).host == .unsupported, "Do not guess unsupported IDE tab")
     try expect(SessionDestination.capture(environment: ["TMUX":"/tmp/tmux,1,0", "ITERM_SESSION_ID":"old"]).host == .unsupported, "Do not trust inherited outer IDs inside tmux")
     try expect(SessionDestination.capture(environment: ["ORCA_TERMINAL_HANDLE":"term_abc"]).host == .orca, "Orca runtime-issued handle")
-    let configuration: [String: Any] = ["theme":"dark", "hooks":["Stop":[["hooks":[["type":"command", "command":"echo existing"]]]]]]
+    try expect(SessionDestination.capture(environment: ["TERM_PROGRAM":"vscode", "ITERM_SESSION_ID":"inherited"]).host == .unsupported, "IDE ignores inherited outer terminal ID")
+    try expect(SessionDestination.capture(environment: ["TERM_PROGRAM":"Orca", "ORCA_TERMINAL_HANDLE":"term_abc", "CMUX_SURFACE_ID":"inherited", "CMUX_WORKSPACE_ID":"inherited"]).host == .orca, "Orca ignores inherited cmux origin")
+    let configuration: [String: Any] = ["theme":"dark", "hooks":["Stop":[["hooks":[["type":"command", "command":"echo existing"], ["type":"command", "command":"echo ' --completion-hook claude'"]]]]]]
     let original = try JSONSerialization.data(withJSONObject: configuration)
     let installed = try HookInstaller.merged(original, provider: .claude, executable: "/Applications/Ai Quota's.app/Contents/MacOS/AiQuotaBar", remove: false)
     let twice = try HookInstaller.merged(installed, provider: .claude, executable: "/Applications/Ai Quota's.app/Contents/MacOS/AiQuotaBar", remove: false)

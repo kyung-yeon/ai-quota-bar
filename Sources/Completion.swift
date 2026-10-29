@@ -103,6 +103,22 @@ struct SessionDestination: Codable, Equatable {
         if let pane = env["HERDR_PANE_ID"], let socket = env["HERDR_SOCKET_PATH"] {
             result.herdr = HerdrDestination(pane: pane, socket: socket)
         }
+        let program = env["TERM_PROGRAM"]?.lowercased() ?? ""
+        if ["vscode", "cursor"].contains(program) { return result }
+        if program == "orca" {
+            if let handle = env["ORCA_TERMINAL_HANDLE"] {
+                result.host = .orca; result.target = handle; result.profile = env["ORCA_USER_DATA_PATH"]
+            }
+            return result
+        }
+        if program == "apple_terminal" {
+            if let tty = env["AIQUOTABAR_TTY"] {
+                result.host = .terminal; result.target = tty
+                result.terminalPID = env["AIQUOTABAR_TTY_PID"].flatMap(Int32.init)
+                result.terminalStart = env["AIQUOTABAR_TTY_START"]
+            }
+            return result
+        }
         if let surface = env["CMUX_SURFACE_ID"], let workspace = env["CMUX_WORKSPACE_ID"] {
             result.host = .cmux; result.target = surface; result.workspace = workspace
         } else if let handle = env["ORCA_TERMINAL_HANDLE"] {
@@ -116,10 +132,6 @@ struct SessionDestination: Codable, Equatable {
             result.host = .wezterm; result.target = pane; result.socket = env["WEZTERM_UNIX_SOCKET"]
         } else if let pane = env["KITTY_WINDOW_ID"], let socket = env["KITTY_LISTEN_ON"] {
             result.host = .kitty; result.target = pane; result.socket = socket
-        } else if env["TERM_PROGRAM"] == "Apple_Terminal", let tty = env["AIQUOTABAR_TTY"] {
-            result.host = .terminal; result.target = tty
-            result.terminalPID = env["AIQUOTABAR_TTY_PID"].flatMap(Int32.init)
-            result.terminalStart = env["AIQUOTABAR_TTY_START"]
         }
         return result
     }

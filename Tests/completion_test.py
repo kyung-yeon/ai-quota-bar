@@ -80,6 +80,50 @@ class CompletionIntegrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.state()["events"]), 1)
 
+    def test_unsupported_current_host_does_not_reuse_a_previous_destination(self):
+        self.env["ITERM_SESSION_ID"] = "old-session"
+        self.hook({"hook_event_name": "SessionStart", "session_id": "s", "cwd": "/p"})
+        self.env.pop("ITERM_SESSION_ID")
+        self.env["TERM_PROGRAM"] = "vscode"
+        self.assertEqual(self.hook(self.completion("s", "new-turn")).returncode, 0)
+        self.assertEqual(self.state()["events"][0]["destination"]["host"], "unsupported")
+
+    def configure(self, action):
+        environment = {**self.env, "CLAUDE_CONFIG_DIR": str(self.directory)}
+        return subprocess.run([str(BINARY), action, "claude"], env=environment,
+                              text=True, capture_output=True, timeout=8)
+
+    def test_custom_profile_install_and_uninstall_preserve_original_settings(self):
+        original = {"theme": "dark", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo custom"}]}]}}
+        file = self.directory / "settings.json"
+        file.write_text(json.dumps(original))
+        result = self.configure("--install-completion-hooks")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = file.read_bytes()
+        self.assertEqual(self.configure("--install-completion-hooks").returncode, 0)
+        self.assertEqual(file.read_bytes(), installed)
+        backups = list(self.directory.glob("settings.json.aiquotabar-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(json.loads(backups[0].read_text()), original)
+        self.assertEqual(self.configure("--remove-completion-hooks").returncode, 0)
+        self.assertEqual(json.loads(file.read_text()), original)
+
+    def test_invalid_and_disabled_configuration_is_not_rewritten(self):
+        file = self.directory / "settings.json"
+        for value in ["broken JSON", '{"disableAllHooks":true}', '{"hooks":{"Stop":"invalid"}}']:
+            file.write_text(value)
+            self.assertNotEqual(self.configure("--install-completion-hooks").returncode, 0)
+            self.assertEqual(file.read_text(), value)
+
+    def test_symbolic_link_configuration_is_not_replaced(self):
+        target = self.directory / "real-settings.json"
+        target.write_text('{"keep":true}')
+        link = self.directory / "settings.json"
+        link.symlink_to(target)
+        self.assertNotEqual(self.configure("--install-completion-hooks").returncode, 0)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(target.read_text(), '{"keep":true}')
+
 
 if __name__ == "__main__":
     unittest.main()
