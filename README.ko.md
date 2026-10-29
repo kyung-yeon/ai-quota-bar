@@ -4,6 +4,12 @@
 
 Codex와 Claude Code 사용량을 함께 확인하는 macOS 메뉴 막대 앱입니다.
 
+<p align="center">
+  <img src="Assets/screenshots/aiquotabar-preview.png" alt="Codex와 Claude Code에 모두 로그인했을 때 남은 한도와 초기화 시각을 예시 데이터로 보여주는 AiQuotaBar 화면" width="560">
+</p>
+
+<p align="center"><em>두 서비스에 모두 로그인한 상태를 설명하는 영문 예시 화면입니다. 사용량, 날짜, 초기화권 정보는 모두 가상의 예시입니다.</em></p>
+
 - 메뉴 막대에 서비스별 아이콘과 주간 잔여율을 표시합니다. 메뉴에서는 제공되는 세션·주간 한도를 확인할 수 있습니다.
 - 다음 초기화 시각은 노트북의 현재 시간대로 표시합니다.
 - Codex에서 제공하는 초기화권 개수와 각 유효기간을 표시합니다.

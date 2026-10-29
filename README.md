@@ -4,6 +4,12 @@
 
 A native macOS menu bar app for checking Codex and Claude Code usage in one place.
 
+<p align="center">
+  <img src="Assets/screenshots/aiquotabar-preview.png" alt="Illustrative AiQuotaBar preview with Codex and Claude Code signed in, showing remaining quotas and reset times using sample data" width="560">
+</p>
+
+<p align="center"><em>Illustrative preview with both providers signed in. All usage values, dates, and reset passes are fictional examples.</em></p>
+
 - Provider icons and remaining weekly quota in the menu bar; session and weekly limits in the menu when available.
 - Reset times displayed in your Mac's time zone.
 - Available Codex reset passes with individual expiration dates, when the service supplies them.

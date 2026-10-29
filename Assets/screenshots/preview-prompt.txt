@@ -1,0 +1,62 @@
+Use case: precise-object-edit.
+Asset type: A clean, publication-ready GitHub README product screenshot of AiQuotaBar.
+Input image 1 is the edit target: the supplied real macOS screenshot. Preserve the real app's native macOS menu-bar and dropdown design, layout hierarchy, familiar Codex purple terminal app icon, Claude orange asterisk icon, typography, rounded corners, and blue remaining-quota progress bars.
+
+Primary request: clean up this screenshot into an illustrative view showing BOTH Codex and Claude Code already signed in. Remove ALL actual account values, actual dates, timestamps, surrounding desktop content, and unrelated menu-bar app icons. Replace them ONLY with the fictional example content below. Do NOT imply extra functionality the app lacks.
+Language: English, as the destination is the English README. Use crisp, perfectly readable native macOS SF-style typography. Do not distort or redesign either provider logo.
+Composition: a small isolated menu-bar pill centered above one full dropdown, with comfortable even margins on a very light neutral gray opaque background. The dropdown should be about 480px wide in logical UI size, portrait overall composition, sharp at high resolution. No computer bezel, no decorative title, no gradients, no callout arrows, no marketing artwork. A subtle realistic shadow is enough. Include a small unobtrusive caption OUTSIDE the app at the bottom: "Illustrative preview · Sample data". Do not put this caption inside the app.
+Keep progress bars proportional to the supplied percentages. Card headers have provider names on the left, and their weekly remaining percentage on the right. Both cards should visibly show successful usage retrieval, no login or installation prompts. Use just enough vertical spacing to make the two sections readable. Preserve ordinary menu items and separators from the original layout.
+
+Exact text and information, in top-to-bottom order:
+Menu-bar pill: Codex icon then "80%" then Claude icon then "60%".
+
+First dropdown section:
+Codex icon + "Codex", right aligned "80%"
+"Weekly" ... right aligned "80% left"
+blue progress bar filled to 80%
+"Resets Jan 17 at 10:00 AM"
+"Reset passes · 2"
+"Expires Jan 12, 2030 at 10:00 AM"
+"Expires Jan 15, 2030 at 10:00 AM"
+"Checked 10:00 AM"
+
+Subtle divider.
+
+Second dropdown section:
+Claude icon + "Claude Code", right aligned "60%"
+"Weekly" ... right aligned "60% left"
+blue progress bar filled to 60%
+"Resets Jan 17 at 10:00 AM"
+"5-hour" ... right aligned "90% left"
+blue progress bar filled to 90%
+"Resets Jan 10 at 3:00 PM"
+"Reset passes · unavailable"
+"Checked 10:00 AM"
+
+Subtle divider.
+"Refreshes every 5 minutes · UTC"
+"Refresh now" with native shortcut "⌘ R" right aligned
+"Quit AiQuotaBar" with native shortcut "⌘ Q" right aligned
+
+Constraints: remove every original quota value, date, timestamp, local time zone, and Korean sign-in-required message. Do not show reset passes for Claude because the implementation does not support retrieving them. Do not add redemption buttons, sign-in buttons, account identifiers, emails, analytics, charts beyond the three stated progress bars, or fake app features. This must look like a carefully cleaned actual native-app screenshot, not an imaginative UI redesign. Output only the final image.
+
+Final refinement prompt:
+Edit the supplied AiQuotaBar preview. It is a documentation image with fictional data.
+The image already has the correct layout. Preserve every existing row. In particular, the Claude Code 5-hour row, its "90% left" label, and its 90%-filled blue progress bar MUST REMAIN visible. There must be THREE blue progress bars in the final image: Codex Weekly 80%, Claude Weekly 60%, Claude 5-hour 90%.
+
+Insert one gray caption line reading exactly "Reset passes · unavailable" BELOW the entire Claude 5-hour block and its "Resets Jan 10 at 3:00 PM" line, and ABOVE "Checked 10:00 AM".
+Increase the overall image height and the dropdown height by about 50 pixels to make room. Push everything below the insertion down. Do not replace or delete any existing label, progress bar, or timestamp.
+
+The Claude section must have these lines in THIS order:
+Claude Code [right: 60%]
+Weekly [right: 60% left]
+[60%-filled blue horizontal bar]
+Resets Jan 17 at 10:00 AM
+5-hour [right: 90% left]
+[90%-filled blue horizontal bar]
+Resets Jan 10 at 3:00 PM
+Reset passes · unavailable
+Checked 10:00 AM
+
+Keep Codex section, menu-bar pill, native icons, gray and white background, window shadow, footer actions, and the outside "Illustrative preview · Sample data" caption unchanged.
+No real account information, no new features. Output the full finished image with all three progress bars and no clipped content.
