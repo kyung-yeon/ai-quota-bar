@@ -22,10 +22,11 @@ def package(binary=None, destination=None, portable=False):
     shutil.copy2(ROOT / "Info.plist", contents / "Info.plist")
     shutil.copy2(ROOT / "AppIcon.icns", resources / "AppIcon.icns")
     shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
+    shutil.copytree(ROOT / "Docs", resources / "Documentation")
     shutil.copytree(ROOT / "Assets", resources / "Assets")
     for name in ["main.swift", "Info.plist", "Makefile", "README.md", "README.ko.md", "LICENSE", "package.py", "install.py", "dmg.py", "AppIcon.icns", "AppIcon.png", "icon-prompt.md", ".gitignore"]:
         shutil.copy2(ROOT / name, resources / "source" / name)
-    for name in ["Sources", "Tests", "Assets", "Docs"]:
+    for name in ["Sources", "Tests", "Assets", "Docs", "Tools"]:
         shutil.copytree(ROOT / name, resources / "source" / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
     if not portable:
         for name in ["codex", "claude"]:
