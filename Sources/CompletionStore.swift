@@ -59,6 +59,11 @@ struct CompletionStore {
     func receive(_ data: Data, provider: Provider, environment: [String: String]) throws {
         guard data.count <= 1_048_576, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CompletionError.invalidEvent }
         let name = payload["hook_event_name"] as? String ?? ""
+        if name == "SubagentStart" || name == "SubagentStop" {
+            let destination = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
+            try update { try $0.trackSubagent(payload, provider: provider, destination: destination) }
+            return
+        }
         guard payload["agent_id"] == nil, !name.hasPrefix("Subagent") else { return }
         let session = (payload["session_id"] ?? payload["thread-id"]) as? String
         guard let session, CompletionEvent.validID(session) else { throw CompletionError.invalidEvent }
@@ -67,7 +72,7 @@ struct CompletionStore {
         try update { state in
             let completion = try CompletionEvent.decode(data, provider: provider, environment: environment, fallbackToken: state.contexts?[key]?.turn)
             if let completion, state.events.contains(where: { $0.id == completion.id }) { return }
-            if name == "SessionEnd" { state.sessions?.removeValue(forKey: key); return }
+            if name == "SessionEnd" { state.endSession(provider.rawValue + "\u{0}" + session); return }
             let lifecycle = ["SessionStart", "UserPromptSubmit", "Stop", "Interrupt", "StopFailure"]
             if lifecycle.contains(name), let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 {
                 let now = Date()
@@ -84,7 +89,9 @@ struct CompletionStore {
                 if name == "SessionStart", payload["source"] as? String == "compact" {
                     activity = state.sessions?[key]?.activity ?? .idle
                 } else { activity = name == "UserPromptSubmit" ? .running : .idle }
-                state.sessions?[key] = LiveSession(event: event, activity: activity, owner: owner, updatedAt: now)
+                let parentKey = state.sessions?[key]?.parentKey
+                let usesParent = state.sessions?[key]?.usesParentDestination
+                state.sessions?[key] = LiveSession(event: event, activity: activity, owner: owner, updatedAt: now, parentKey: parentKey, usesParentDestination: usesParent)
                 // Adopt a runtime-only identity as soon as the native session is known,
                 // including while its previous completion still needs acknowledgement.
                 for index in state.events.indices where state.events[index].sessionID.hasPrefix("orca:") && event.terminalKey != nil && state.events[index].terminalKey == event.terminalKey {
@@ -125,7 +132,7 @@ struct CompletionStore {
                 if state.events.contains(where: { $0.terminalKey == session.event.terminalKey && $0.completedAt >= prior.updatedAt }) { continue }
                 let id = "runtime:" + completionHash(session.key + "\u{0}" + session.completionToken!)
                 guard !state.events.contains(where: { $0.id == id }) else { continue }
-                let source = state.sessions?.values.filter { $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }?.event
+                let source = state.sessions?.values.filter { $0.usesParentDestination != true && $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }?.event
                     ?? state.events.filter { $0.terminalKey == session.event.terminalKey }.max { $0.completedAt < $1.completedAt }
                     ?? session.event
                 state.events.append(CompletionEvent(id: id, providerID: source.providerID, sessionID: source.sessionID,

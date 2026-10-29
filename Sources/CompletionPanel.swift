@@ -187,13 +187,13 @@ private final class CompletionWindow: NSPanel {
 
     private func renderPage() {
         clearList(resetError: false)
-        let pages = max(1, (count + pageSize - 1) / pageSize)
-        pageIndex = min(max(0, pageIndex), pages - 1)
-        pagination.isHidden = pages == 1
-        pageLabel.stringValue = "\(pageIndex + 1) / \(pages)"
+        let pages = SessionTree.pages(displayedRows, capacity: pageSize)
+        pageIndex = min(max(0, pageIndex), pages.count - 1)
+        pagination.isHidden = pages.count == 1
+        pageLabel.stringValue = "\(pageIndex + 1) / \(pages.count)"
         previous.isEnabled = pageIndex > 0
-        next.isEnabled = pageIndex + 1 < pages
-        for row in displayedRows.dropFirst(pageIndex * pageSize).prefix(pageSize) {
+        next.isEnabled = pageIndex + 1 < pages.count
+        for row in pages[pageIndex] {
             let card = CompletionCard(row: row, preview: isPreview, open: { [weak self] in self?.onOpen?(row.event) },
                                       acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
             addRow(card)
@@ -263,7 +263,8 @@ private final class CompletionWindow: NSPanel {
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
         let width = min(432 + Self.animationInset * 2, visible.width)
         if count > 0 {
-            let capacity = min(3, max(1, Int((visible.height - 120) / 54)))
+            let maximum = displayedRows.contains { $0.depth > 0 } ? 6 : 3
+            let capacity = min(maximum, max(1, Int((visible.height - 120) / 54)))
             if capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))

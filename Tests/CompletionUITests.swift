@@ -266,6 +266,24 @@ import QuartzCore
     _ = waitForActivity(.idle)
     try expect(recovery.unreadCount == 1, "Recovery after a failed poll detects completion from the last successful working snapshot")
     recovery.close()
+    var treeParent = idle
+    treeParent.event = events[0]
+    var treeChild = running
+    treeChild.parentID = treeParent.id
+    treeChild.opensParent = true
+    let treeRows = SessionTree.order([treeChild, treeParent])
+    animated.showSessions(treeRows, animateNew: false)
+    animated.panel.contentView?.layoutSubtreeIfNeeded()
+    let treeCards = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }
+    let childCard = treeCards.first { $0.row.depth == 1 }!
+    try expect(treeCards.count == 2 && childCard.frame.height == 36,
+               "Subagents use compact indented rows beneath their parent")
+    let childSurface = childCard.subviews.first!
+    try expect(childSurface.frame.minX > 0, "Child surfaces leave space for tree connector lines")
+    let childOpen = descendants(childCard).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-open" }!
+    try expect(childOpen.toolTip == L10n.text("부모 세션 열기", "Open parent session"), "Child navigation explicitly identifies its parent terminal destination")
+    try expect(descendants(animated.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Tree layout retains pagination without internal scrolling")
+    animated.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }
 

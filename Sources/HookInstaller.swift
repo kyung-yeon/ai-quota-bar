@@ -27,7 +27,7 @@ enum HookInstallationError: Error, LocalizedError {
 
 enum HookInstaller {
     static let flag = "--completion-hook"
-    static let events = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+    static let events = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"]
     static func setAutomaticConnection(_ enabled: Bool, configuration: URL) throws {
         let marker = configuration.appendingPathExtension("aiquotabar-disabled")
         if enabled {

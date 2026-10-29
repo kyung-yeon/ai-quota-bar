@@ -51,6 +51,58 @@ func sessionTests() throws {
     let worktrees = Data(#"{"result":{"worktrees":[{"agents":[{"paneKey":"t:p","state":"working","hasLivePty":true,"updatedAt":1000,"prompt":"PRIVATE"}]}]}}"#.utf8)
     let discovered = try OrcaSessionDiscovery.parse(terminals: terminals, worktrees: worktrees)
     try expect(discovered.count == 1 && discovered[0].activity == .running, "Only connected live agent terminals are discovered")
+    let treeWorktrees = Data(#"{"worktrees":[{"agents":[{"paneKey":"t:p","state":"working","hasLivePty":true,"subagentObservation":"live","subagents":[{"id":"child-1","agentType":"reviewer","model":"model-example","state":"working","startedAt":1000}]}]}]}"#.utf8)
+    let tree = try OrcaSessionDiscovery.parse(terminals: terminals, worktrees: treeWorktrees)
+    try expect(tree.count == 2, "Runtime subagents are discovered beneath their owning session")
+    let treeRows = SessionRow.make(state: CompletionState(), discovered: tree)
+    try expect(treeRows.map(\.depth) == [0, 1] && treeRows[1].parentID == treeRows[0].id,
+               "A child stays directly beneath its runtime parent")
+    try expect(treeRows[1].event.sessionName == "model-example", "Child model metadata is displayed without reading task descriptions")
+    var nativeParent = rows[0].event
+    nativeParent.destination = tree[0].event.destination
+    let nativeTree = SessionRow.make(state: CompletionState(events: [nativeParent]), discovered: tree)
+    try expect(nativeTree.count == 2 && nativeTree[1].parentID == nativeParent.sessionKey,
+               "Adopting a native parent identity keeps runtime children attached")
+    var closedParent = tree[0]; closedParent.owner = SessionOwner(pid: 42, startedAt: "old")
+    var childWithoutOwner = tree[1]; childWithoutOwner.event.destination = SessionDestination()
+    closedParent.event.destination = SessionDestination()
+    let orphanState = CompletionState(sessions: ["parent": closedParent, "child": childWithoutOwner])
+    try expect(SessionRow.make(state: orphanState, discovered: [], isAlive: { _ in false }).isEmpty,
+               "Process exit removes descendants even when their hook had no owner PID")
+    let canonical = Data(#"{"worktrees":[{"agents":[{"paneKey":"t:p","state":"working","hasLivePty":true,"children":[{"id":"owner","providerId":"child-1","kind":"agent","state":"done","membership":"settled"},{"id":"nested","providerId":"child-2","parentChildWorkId":"owner","kind":"agent","state":"working","membership":"live"},{"id":"ended","kind":"agent","state":"done","membership":"settled"}],"subagents":[{"id":"duplicate","state":"working"}]}]}]}"#.utf8)
+    let nestedTree = try OrcaSessionDiscovery.parse(terminals: terminals, worktrees: canonical)
+    let nestedRows = SessionRow.make(state: CompletionState(), discovered: nestedTree)
+    try expect(nestedRows.map(\.depth) == [0, 1, 2] && nestedRows.last?.event.sessionID == "child-2",
+               "Canonical nested children replace legacy roster and retain settled owners of live descendants")
+    let noChildren = Data(#"{"worktrees":[{"agents":[{"paneKey":"t:p","state":"working","hasLivePty":true,"children":[],"subagents":[{"id":"stale","state":"working"}]}]}]}"#.utf8)
+    try expect(try OrcaSessionDiscovery.parse(terminals: terminals, worktrees: noChildren).count == 1,
+               "An explicit empty canonical child list suppresses the legacy roster")
+    let paneTerminals = Data(#"{"terminals":[{"handle":"term_live","tabId":"t","leafId":"p","connected":true,"agentIdentity":"codex","worktreePath":"/project"},{"handle":"term_child","tabId":"t","leafId":"q","connected":true,"agentIdentity":"codex","worktreePath":"/project"}]}"#.utf8)
+    let paneAgents = Data(#"{"worktrees":[{"agents":[{"paneKey":"t:p","state":"working","hasLivePty":true},{"paneKey":"t:q","parentPaneKey":"t:p","state":"working","hasLivePty":true}]}]}"#.utf8)
+    let paneRows = SessionRow.make(state: CompletionState(), discovered: try OrcaSessionDiscovery.parse(terminals: paneTerminals, worktrees: paneAgents))
+    try expect(paneRows.map(\.depth) == [0, 1] && paneRows[1].event.destination.target == "term_child" && !paneRows[1].opensParent,
+               "A child with its own pane keeps the tree relationship and its own navigation target")
+    let pages = SessionTree.pages(nestedRows, capacity: 2)
+    try expect(pages.count == 2 && pages[1].map(\.event.sessionID) == ["child-1", "child-2"],
+               "A continuation page repeats parent context without losing its child")
+    var urgentChild = nestedRows[2]; urgentChild.needsAttention = true
+    var otherIdle = rows[0]; otherIdle.needsAttention = false; otherIdle.activity = .idle
+    let urgentTree = SessionTree.order([treeRows[0], nestedRows[1], urgentChild, otherIdle])
+    try expect(urgentTree.first?.id == treeRows[0].id && urgentTree[2].id == urgentChild.id,
+               "Attention promotes an entire family without separating its parent and child")
+    let childStore = CompletionStore(directory: directory.appendingPathComponent("children"))
+    func childHook(_ event: String, parent: String = "root", child: String = "worker") throws {
+        try childStore.receive(JSONSerialization.data(withJSONObject: ["hook_event_name": event, "session_id": parent, "agent_id": child,
+            "agent_type": "reviewer", "cwd": "/project"]), provider: .claude, environment: [:])
+    }
+    try childHook("SubagentStart")
+    try childHook("SubagentStart", parent: "worker", child: "nested")
+    try expect(try SessionRow.make(state: childStore.load(), discovered: []).map(\.depth) == [0, 1, 2],
+               "Lifecycle hooks preserve nested subagent ownership")
+    try childHook("SubagentStop")
+    try expect(try childStore.load().unread.isEmpty, "Child completion updates its activity without claiming the parent response finished")
+    try childStore.receive(Data(#"{"hook_event_name":"SessionEnd","session_id":"root"}"#.utf8), provider: .claude, environment: [:])
+    try expect(try childStore.load().sessions?.isEmpty == true, "Parent exit removes its whole subagent tree")
     try expect(!String(data: JSONEncoder().encode(discovered), encoding: .utf8)!.contains("PRIVATE"), "Runtime previews and prompts are never retained")
     var event = rows[0].event
     event.destination = discovered[0].event.destination
@@ -65,6 +117,13 @@ func sessionTests() throws {
     try observedStore.recordObservedCompletions([finished], previous: discovered)
     try observedStore.recordObservedCompletions([finished], previous: discovered)
     try expect(try observedStore.load().unread.count == 1, "Working-to-completed runtime transitions persist once for pre-existing sessions")
+    let attribution = CompletionStore(directory: directory.appendingPathComponent("attribution"))
+    let origin = ["TERM_PROGRAM": "Orca", "ORCA_TERMINAL_HANDLE": "term_live"]
+    try attribution.receive(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"native-parent","cwd":"/project"}"#.utf8), provider: .codex, environment: origin)
+    try attribution.receive(Data(#"{"hook_event_name":"SubagentStart","session_id":"native-parent","agent_id":"latest-child","cwd":"/project"}"#.utf8), provider: .codex, environment: origin)
+    try attribution.recordObservedCompletions([finished], previous: discovered)
+    try expect(try attribution.load().unread.first?.sessionID == "native-parent",
+               "Runtime completion belongs to the parent even when its child updated the shared terminal more recently")
     let adoption = CompletionStore(directory: directory.appendingPathComponent("adoption"))
     try adoption.recordObservedCompletions([finished], previous: discovered)
     let prompt = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"native-id","cwd":"/project"}"#.utf8)

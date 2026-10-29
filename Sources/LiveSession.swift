@@ -14,6 +14,9 @@ struct LiveSession: Codable, Equatable {
     var owner: SessionOwner?
     var updatedAt: Date
     var completionToken: String?
+    var parentKey: String?
+    var childrenKnown: Bool?
+    var usesParentDestination: Bool?
     var key: String { event.sessionKey }
 }
 
@@ -31,42 +34,65 @@ struct SessionRow: Equatable, Identifiable {
     var activity: SessionActivity = .idle
     var isOpen = false
     var needsAttention = true
+    var parentID: String?
+    var depth = 0
+    var opensParent = false
     var id: String { event.sessionKey }
 
     /// Keep closed unread sessions, and show an acknowledged open session as idle.
     static func make(state: CompletionState, discovered: [LiveSession], isAlive: (SessionOwner) -> Bool = { $0.isAlive }) -> [SessionRow] {
         var live = (state.sessions ?? [:]).values.filter { $0.owner.map(isAlive) ?? true }
         // The runtime is authoritative about which Orca tabs are currently open.
-        let discoveredTargets = Set(discovered.compactMap { $0.event.terminalKey })
+        let discoveredTargets = Set(discovered.filter { $0.usesParentDestination != true }.compactMap { $0.event.terminalKey })
         live.removeAll { $0.event.terminalKey.map { !discoveredTargets.contains($0) } ?? false }
-        for var session in discovered {
+        var parentAliases: [String: String] = [:]
+        for var session in discovered where session.usesParentDestination != true {
             // Hooks give the real session ID; the runtime also covers pre-existing sessions.
-            let known = live.filter { $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }
+            let originalKey = session.key
+            let known = live.filter { $0.usesParentDestination != true && $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }
             if let known {
                 session.event = known.event
                 if known.updatedAt > session.updatedAt { session.activity = known.activity }
             } else if let known = state.events.filter({ $0.terminalKey == session.event.terminalKey }).max(by: { $0.completedAt < $1.completedAt }) {
                 session.event = known
             }
-            live.removeAll { $0.event.terminalKey == session.event.terminalKey }
+            parentAliases[originalKey] = session.key
+            live.removeAll { $0.event.terminalKey == session.event.terminalKey && ($0.usesParentDestination != true || session.childrenKnown == true) }
             live.append(session)
+        }
+        for var child in discovered where child.usesParentDestination == true {
+            child.parentKey = child.parentKey.map { parentAliases[$0] ?? $0 }
+            live.removeAll { $0.key == child.key }
+            live.append(child)
+        }
+        for index in live.indices { live[index].parentKey = live[index].parentKey.map { parentAliases[$0] ?? $0 } }
+        // Children cannot outlive their owning session just because an old hook
+        // did not capture a process ID. Remove orphaned descendants transitively.
+        var previousCount = -1
+        while previousCount != live.count {
+            previousCount = live.count
+            let keys = Set(live.map(\.key))
+            live.removeAll { $0.parentKey.map { !keys.contains($0) } ?? false }
         }
         var rows: [String: SessionRow] = [:]
         for session in live {
-            rows[session.key] = SessionRow(event: session.event, activity: session.activity, isOpen: true, needsAttention: false)
+            rows[session.key] = SessionRow(event: session.event, activity: session.activity, isOpen: true, needsAttention: false,
+                parentID: session.parentKey, opensParent: session.usesParentDestination == true)
         }
         for event in state.unread {
             var row = rows[event.sessionKey] ?? SessionRow(event: event)
             row.event = event; row.needsAttention = true
             rows[event.sessionKey] = row
         }
-        return rows.values.sorted {
-            let left = $0.needsAttention ? 0 : ($0.activity == .running ? 1 : 2)
-            let right = $1.needsAttention ? 0 : ($1.activity == .running ? 1 : 2)
+        return SessionTree.order(Array(rows.values))
+    }
+
+    static func precedes(_ lhs: SessionRow, _ rhs: SessionRow) -> Bool {
+            let left = lhs.needsAttention ? 0 : (lhs.activity == .running ? 1 : 2)
+            let right = rhs.needsAttention ? 0 : (rhs.activity == .running ? 1 : 2)
             if left != right { return left < right }
-            if left == 0, $0.event.completedAt != $1.event.completedAt { return $0.event.completedAt > $1.event.completedAt }
-            if $0.event.project != $1.event.project { return $0.event.project.localizedStandardCompare($1.event.project) == .orderedAscending }
-            return $0.id < $1.id
-        }
+            if left == 0, lhs.event.completedAt != rhs.event.completedAt { return lhs.event.completedAt > rhs.event.completedAt }
+            if lhs.event.project != rhs.event.project { return lhs.event.project.localizedStandardCompare(rhs.event.project) == .orderedAscending }
+            return lhs.id < rhs.id
     }
 }

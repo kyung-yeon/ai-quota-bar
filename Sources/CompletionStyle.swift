@@ -42,8 +42,10 @@ final class CompletionButton: NSButton {
     var foreground: NSColor?
     private let prominent: Bool
     private let plain: Bool
+    private let symbolName: String?
     init(_ title: String, symbol: String? = nil, prominent: Bool = false, plain: Bool = false, action: @escaping () -> Void) {
         self.prominent = prominent; self.plain = plain
+        self.symbolName = symbol
         super.init(frame: .zero)
         self.title = title; self.perform = action
         target = self; self.action = #selector(invoke)
@@ -83,6 +85,18 @@ final class CompletionButton: NSButton {
         let totalWidth = textWidth + (image == nil ? 0 : 18)
         let x = alignment == .left ? 0 : (bounds.width - totalWidth) / 2
         (title as NSString).draw(in: NSRect(x: x, y: (bounds.height - size.height) / 2, width: textWidth, height: size.height), withAttributes: attributes)
+        if symbolName == "checkmark", title.isEmpty {
+            // Keep this essential action legible even when AppKit resolves a
+            // template symbol differently during cached Dark Mode rendering.
+            color.setStroke()
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
+            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 5))
+            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 6))
+            check.lineWidth = 1.5; check.lineCapStyle = .round; check.lineJoinStyle = .round
+            check.stroke()
+            return
+        }
         if let image {
             // Resolve the symbol alpha ourselves: template symbol colors can be
             // reinterpreted by AppKit when drawing a custom button in Dark Mode.

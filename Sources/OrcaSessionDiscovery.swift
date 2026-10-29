@@ -27,17 +27,19 @@ enum OrcaSessionDiscovery {
                 if let key = agent["paneKey"] as? String { agents[key] = agent }
             }
         }
-        return terminals.compactMap { terminal in
+        var sessions: [LiveSession] = []
+        var paneKeys: [String: String] = [:]
+        var paneParents: [String: String] = [:]
+        for terminal in terminals {
             guard terminal["connected"] as? Bool == true, terminal["orphaned"] as? Bool != true,
                   let identity = terminal["agentIdentity"] as? String,
                   let provider = Provider(rawValue: identity),
                   let handle = terminal["handle"] as? String,
                   let cwd = terminal["worktreePath"] as? String, cwd.hasPrefix("/"),
                   let tab = terminal["tabId"] as? String, let leaf = terminal["leafId"] as? String,
-                  let agent = agents[tab + ":" + leaf], agent["hasLivePty"] as? Bool == true,
-                  agent["parentPaneKey"] == nil || agent["parentPaneKey"] is NSNull else { return nil }
+                  let agent = agents[tab + ":" + leaf], agent["hasLivePty"] as? Bool == true else { continue }
             let destination = SessionDestination(host: .orca, target: handle, profile: profile)
-            guard (try? SessionNavigator.validate(destination)) != nil else { return nil }
+            guard (try? SessionNavigator.validate(destination)) != nil else { continue }
             let status = (agent["programStatus"] as? [String: Any])?["state"] as? String ?? agent["state"] as? String ?? ""
             let activity: SessionActivity = ["working", "running"].contains(status) ? .running : (["done", "idle"].contains(status) ? .idle : .unknown)
             let timestamp = (agent["updatedAt"] as? Double ?? agent["stateStartedAt"] as? Double ?? 0) / 1000
@@ -49,7 +51,50 @@ enum OrcaSessionDiscovery {
                 sessionName: title, completedAt: updated, destination: destination)
             let done = agent["state"] as? String == "done" && agent["interrupted"] as? Bool != true
             let token = done ? (agent["stateStartedAt"] as? NSNumber)?.stringValue : nil
-            return LiveSession(event: event, activity: activity, updatedAt: updated, completionToken: token)
+            let parent = LiveSession(event: event, activity: activity, updatedAt: updated, completionToken: token,
+                childrenKnown: agent["children"] != nil || agent["subagents"] != nil)
+            sessions.append(parent)
+            paneKeys[tab + ":" + leaf] = parent.key
+            paneParents[parent.key] = agent["parentPaneKey"] as? String
+            sessions.append(contentsOf: children(agent, parent: parent))
+        }
+        for index in sessions.indices where sessions[index].usesParentDestination != true {
+            sessions[index].parentKey = paneParents[sessions[index].key].flatMap { paneKeys[$0] }
+        }
+        return sessions
+    }
+
+    private static func children(_ agent: [String: Any], parent: LiveSession) -> [LiveSession] {
+        // Canonical children (even an empty array) override the legacy roster.
+        let canonical = agent["children"] as? [[String: Any]]
+        let entries = canonical ?? agent["subagents"] as? [[String: Any]] ?? []
+        let agents = entries.filter { canonical == nil || $0["kind"] as? String == "agent" }
+        let byID = Dictionary(agents.compactMap { item -> (String, [String: Any])? in
+            guard let id = item["id"] as? String else { return nil }; return (id, item)
+        }, uniquingKeysWith: { _, latest in latest })
+        // Retain a settled ancestor only if it owns a live descendant.
+        var visible = Set(agents.compactMap { $0["membership"] as? String == "settled" ? nil : $0["id"] as? String })
+        for id in visible {
+            var owner = byID[id]?["parentChildWorkId"] as? String, seen: Set<String> = [id]
+            while let current = owner, seen.insert(current).inserted, let item = byID[current] {
+                visible.insert(current); owner = item["parentChildWorkId"] as? String
+            }
+        }
+        func sessionID(_ item: [String: Any]) -> String? { (item["providerId"] ?? item["id"]) as? String }
+        return agents.compactMap { item in
+            guard let id = item["id"] as? String, visible.contains(id), let session = sessionID(item), CompletionEvent.validID(session) else { return nil }
+            let role = item["agentType"] as? String
+            let title = item["name"] as? String ?? ((role != nil && role != "default") ? role! : String(session.prefix(12)))
+            let details = item["model"] as? String ?? role ?? parent.event.provider.name
+            let state = item["state"] as? String ?? ""
+            let activity: SessionActivity = agent["subagentObservation"] as? String == "unverifiable" ? .unknown
+                : (["working", "running"].contains(state) ? .running : (["idle", "done", "completed", "waiting"].contains(state) ? .idle : .unknown))
+            let owner = (item["parentChildWorkId"] as? String).flatMap { byID[$0] }.flatMap(sessionID)
+            let event = CompletionEvent(id: "child:" + session, providerID: parent.event.providerID, sessionID: session,
+                project: String(title.prefix(100)), directory: parent.event.directory, sessionName: String(details.prefix(120)),
+                completedAt: parent.updatedAt, destination: parent.event.destination)
+            return LiveSession(event: event, activity: activity, updatedAt: parent.updatedAt,
+                parentKey: owner.map { parent.event.providerID + "\u{0}" + $0 } ?? parent.key, usesParentDestination: true)
         }
     }
 }
