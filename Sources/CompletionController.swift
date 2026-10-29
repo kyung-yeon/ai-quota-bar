@@ -43,7 +43,6 @@ import AppKit
             }
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
-        panel.onAcknowledgeAll = { [weak self] in self?.acknowledge(nil) }
         panel.onClose = { [weak self] in self?.close() }
     }
 
@@ -147,10 +146,10 @@ import AppKit
         }
     }
 
-    private func acknowledge(_ id: String?) {
+    private func acknowledge(_ id: String) {
         if events.isEmpty { return }
         let store = self.store
-        let ids = id.map { Set([$0]) } ?? Set(events.map(\.id))
+        let ids: Set<String> = [id]
         Task { @MainActor [weak self] in
             do {
                 try await Task.detached {

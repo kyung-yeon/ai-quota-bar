@@ -29,21 +29,20 @@ private final class CompletionWindow: NSPanel {
     private let heading = CompletionCard.label("", size: 13)
     private let badge = CompletionCard.label("", size: 12)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
-    private let dismissAll: CompletionButton
-    private var pulse: Timer?
+    private var timeRefresh: Timer?
+    private var reminder: Timer?
+    private let reminderKey = "unreadReminder"
+    var activeReminder: CAAnimation? { chrome.layer?.animation(forKey: reminderKey) }
     private var observers: [NSObjectProtocol] = []
     private var count = 0
     private let visibleFrames: () -> [NSRect]
     private let preferences: UserDefaults
     private let reduceMotion: () -> Bool
     private var positioning = true
-    private let motionKey = "completionAttention"
-    static let animationInset: CGFloat = 24
+    static let windowInset: CGFloat = 24
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
-    var onAcknowledgeAll: (() -> Void)?
     var onClose: (() -> Void)?
-    var activeWiggle: CAAnimation? { chrome.layer?.animation(forKey: motionKey) }
 
     init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
          preferences: UserDefaults = .standard,
@@ -53,7 +52,6 @@ private final class CompletionWindow: NSPanel {
         self.reduceMotion = reduceMotion
         panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        dismissAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), plain: true, action: {})
         super.init()
         panel.delegate = self
         panel.title = L10n.text("AiQuotaBar 완료 알림", "AiQuotaBar completions")
@@ -70,8 +68,6 @@ private final class CompletionWindow: NSPanel {
         panel.contentView = canvas
         chrome.translatesAutoresizingMaskIntoConstraints = false
         canvas.addSubview(chrome)
-        dismissAll.perform = { [weak self] in self?.onAcknowledgeAll?() }
-        dismissAll.controlSize = .small
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
         badge.font = .systemFont(ofSize: 11, weight: .semibold)
         badge.alignment = .center
@@ -83,7 +79,7 @@ private final class CompletionWindow: NSPanel {
         close.toolTip = L10n.text("플로팅 닫기", "Close floating panel")
         close.setAccessibilityLabel(close.toolTip!)
         close.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        let header = NSStackView(views: [heading, pill, NSView(), dismissAll, close]); header.spacing = 8
+        let header = NSStackView(views: [heading, pill, NSView(), close]); header.spacing = 8
         previous.identifier = NSUserInterfaceItemIdentifier("completion-previous-page")
         next.identifier = NSUserInterfaceItemIdentifier("completion-next-page")
         previous.setAccessibilityLabel(L10n.text("이전 알림", "Previous completions"))
@@ -101,10 +97,10 @@ private final class CompletionWindow: NSPanel {
         stack.translatesAutoresizingMaskIntoConstraints = false
         chrome.addSubview(stack)
         NSLayoutConstraint.activate([
-            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.animationInset),
-            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.animationInset),
-            chrome.topAnchor.constraint(equalTo: canvas.topAnchor, constant: Self.animationInset),
-            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -Self.animationInset),
+            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.windowInset),
+            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.windowInset),
+            chrome.topAnchor.constraint(equalTo: canvas.topAnchor, constant: Self.windowInset),
+            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -Self.windowInset),
             stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 8),
@@ -124,8 +120,8 @@ private final class CompletionWindow: NSPanel {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if self.reduceMotion() {
-                    self.stopAnimation()
-                    self.list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
+                    self.stopRowMotion()
+                    self.chrome.layer?.removeAnimation(forKey: self.reminderKey)
                 }
                 self.updateActivityMotion()
             }
@@ -137,13 +133,16 @@ private final class CompletionWindow: NSPanel {
                 }
             })
         }
-        pulse = Timer.scheduledTimer(withTimeInterval: CompletionMotion.interval, repeats: true) { [weak self] _ in
+        timeRefresh = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.updateTime() }
-                self?.animate()
             }
         }
-        pulse?.tolerance = 0.5
+        timeRefresh?.tolerance = 1
+        reminder = Timer.scheduledTimer(withTimeInterval: CompletionMotion.interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.remindUnread() }
+        }
+        reminder?.tolerance = 0.5
         positioning = false
     }
 
@@ -155,7 +154,12 @@ private final class CompletionWindow: NSPanel {
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
         let oldPositions = Dictionary(uniqueKeysWithValues: list.arrangedSubviews.compactMap { view -> (String, NSRect)? in
             guard let card = view as? CompletionCard else { return nil }
-            return (card.row.id, card.convert(card.bounds, to: panel.contentView))
+            var visible = card.convert(card.bounds, to: panel.contentView)
+            if let layer = card.layer, let presentation = layer.presentation() {
+                let remaining = presentation.frame.minY - layer.frame.minY
+                visible.origin.y += card.superview?.isFlipped == true ? -remaining : remaining
+            }
+            return (card.row.id, panel.convertToScreen(visible))
         })
         count = rows.count
         displayedRows = rows
@@ -164,8 +168,6 @@ private final class CompletionWindow: NSPanel {
         guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
         badge.stringValue = "\(rows.count)"
-        dismissAll.title = L10n.text("모두 확인", "Dismiss all")
-        dismissAll.isEnabled = rows.contains(where: \.needsAttention)
         renderPage()
         position()
         panel.orderFrontRegardless()
@@ -173,16 +175,18 @@ private final class CompletionWindow: NSPanel {
         updateActivityMotion()
         if animateNew, !reduceMotion() {
             for card in list.arrangedSubviews.compactMap({ $0 as? CompletionCard }) {
-                let current = card.convert(card.bounds, to: panel.contentView)
-                let offset = oldPositions[card.row.id].map { $0.minY - current.minY } ?? -20
+                let current = panel.convertToScreen(card.convert(card.bounds, to: panel.contentView))
+                let screenOffset = oldPositions[card.row.id].map { $0.minY - current.minY } ?? -20
+                // The stack is flipped, while screen coordinates grow upward.
+                // Screen-space positions also keep resizing from introducing a jump.
+                let offset = card.superview?.isFlipped == true ? -screenOffset : screenOffset
                 if abs(offset) > 1 {
                     let movement = CABasicAnimation(keyPath: "transform.translation.y")
-                    movement.fromValue = offset; movement.toValue = 0; movement.duration = 0.35
+                    movement.fromValue = offset; movement.toValue = 0; movement.duration = 0.6
                     movement.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     card.layer?.add(movement, forKey: "sessionPromotion")
                 }
             }
-            animate()
         }
     }
 
@@ -209,15 +213,13 @@ private final class CompletionWindow: NSPanel {
     }
 
     func showEmpty(_ message: String) {
-        count = 0; displayedRows = []; stopAnimation(); clearList()
+        count = 0; displayedRows = []; stopRowMotion(); clearList()
         pagination.isHidden = true
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
         badge.stringValue = "0"
         let text = NSTextField(wrappingLabelWithString: message)
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)
-        dismissAll.title = L10n.text("모두 확인", "Dismiss all")
-        dismissAll.isEnabled = false
         position()
         panel.orderFrontRegardless()
     }
@@ -229,7 +231,7 @@ private final class CompletionWindow: NSPanel {
     }
 
     func hide() {
-        stopAnimation()
+        stopRowMotion()
         list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(false) }
         panel.orderOut(nil)
     }
@@ -259,7 +261,7 @@ private final class CompletionWindow: NSPanel {
         guard !positioning, let primary = screens.first else { return }
         positioning = true
         defer { positioning = false }
-        stopAnimation()
+        stopRowMotion()
         let saved = preferences.bool(forKey: "completionPanelMoved")
         // Default to the primary display, then follow the display chosen by dragging.
         let currentScreen = saved ? screens.filter { $0.intersects(panel.frame) }.max {
@@ -268,18 +270,18 @@ private final class CompletionWindow: NSPanel {
         } : nil
         let screenFrame = currentScreen ?? primary
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
-        let width = min(432 + Self.animationInset * 2, visible.width)
+        let width = min(432 + Self.windowInset * 2, visible.width)
         if count > 0 {
             let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / 54)))
             if capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))
         // Measure the actual card layout so there is no clipped content or internal scrolling.
-        var height = ceil(stack.fittingSize.height + 18 + Self.animationInset * 2)
+        var height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
         while height > visible.height && pageSize > 1 && count > 0 {
             pageSize -= 1
             renderPage()
-            height = ceil(stack.fittingSize.height + 18 + Self.animationInset * 2)
+            height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
         }
         height = min(height, visible.height)
         let old = panel.frame
@@ -291,17 +293,25 @@ private final class CompletionWindow: NSPanel {
     func windowWillMove(_ notification: Notification) {
         guard !positioning else { return }
         preferences.set(true, forKey: "completionPanelMoved")
-        stopAnimation()
+        stopRowMotion()
     }
     func windowDidMove(_ notification: Notification) {
         guard !positioning, NSEvent.pressedMouseButtons != 0 else { return }
         preferences.set(true, forKey: "completionPanelMoved")
-        stopAnimation()
+        stopRowMotion()
         // Never clamp during a drag: the window must be able to cross display edges.
     }
-    func animate() {
-        guard displayedRows.contains(where: \.needsAttention), panel.isVisible, !reduceMotion(), activeWiggle == nil else { return }
-        chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size), forKey: motionKey)
+    private func stopRowMotion() {
+        list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
+        chrome.layer?.removeAnimation(forKey: reminderKey)
     }
-    private func stopAnimation() { chrome.layer?.removeAnimation(forKey: motionKey) }
+
+    func remindUnread() {
+        guard panel.isVisible, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
+              !list.arrangedSubviews.contains(where: { $0.layer?.animation(forKey: "sessionPromotion") != nil }) else { return }
+        // Leave the promotion slide unobstructed and keep tall pages within their
+        // transparent margin while reminding only about unacknowledged work.
+        let degrees = min(3, atan(20 / max(1, chrome.bounds.height)) * 180 / .pi)
+        chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size, degrees: degrees), forKey: reminderKey)
+    }
 }

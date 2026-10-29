@@ -1,12 +1,12 @@
 # Completion notifications
 
-AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards initially appear on the macOS primary display, float above other apps across Spaces (including full-screen spaces), and remain until you choose **Dismiss** or **Dismiss all**. Drag the panel's header or background to any connected display. Its position is remembered, including when new cards arrive or the app restarts. If that display is disconnected, the panel returns to the primary display.
+AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards initially appear on the macOS primary display, float above other apps across Spaces (including full-screen spaces), and remain until you choose **Dismiss**. Drag the panel's header or background to any connected display. Its position is remembered, including when new cards arrive or the app restarts. If that display is disconnected, the panel returns to the primary display.
 
 Only the latest completion for each provider/session appears. A new completion updates that card and its time; previous event IDs remain stored for replay protection. Existing duplicate cards are collapsed when the app loads them. Dismissing the newest card does not reveal older completions.
 
 The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each compact 48-point card shows a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. **✓ Dismiss** acknowledges the card. The title uses the available row width, and action buttons are square. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. The default is 10 rows per page. Choose 5, 10, 15, or 20 in the menu bar’s **Floating panel settings**; the value persists across relaunches. Fewer rows may fit on a small display, and previous/next buttons expose the rest. Native subagent rows are 36 points tall, indented with connector lines. A continuation page repeats its parent context.
 
-The entire panel swings three times by ±3° around its top-right corner when new completions arrive and every 12 seconds afterward. Each movement takes 0.11 seconds. Dismissal stops the animation; macOS **Reduce motion** disables it, including when enabled while the animation is running.
+A new completion slides upward with a 0.6-second ease-in/ease-out animation. While completed responses remain unacknowledged, the panel gives a three-swing reminder every 12 seconds, avoiding overlap with the slide. Rotation is reduced for tall pages so corners remain inside the window. Working and idle sessions alone never trigger a reminder; confirming the last completion or closing the panel stops it immediately. macOS **Reduce motion** disables movement, including animations already running.
 
 
 <img src="../Assets/screenshots/completions-en.png" alt="Attention, working and idle rows for fictional AI sessions" width="390">
@@ -17,7 +17,7 @@ The entire panel swings three times by ±3° around its top-right corner when ne
 
 The list orders **needs attention → working → idle/open**. Idle rows are gray but remain clickable. Working rows have a rotating indicator. A newly completed session moves to the first page and animates upward; Reduce Motion disables movement and spinning. Dismissing a completion leaves its session in the list while it is open. A closed session is removed unless it has an unread completion. Pagination keeps every row accessible without a scrollbar.
 
-**Open floating panel / Close floating panel** in the menu bar and the **×** button beside **Dismiss all** control visibility. Closing does not acknowledge anything or stop collection. This choice survives new completions and relaunches; reopen the panel from the menu.
+**Open floating panel / Close floating panel** in the menu bar and the **×** button in the upper-right corner control visibility. Closing does not acknowledge anything or stop collection. This choice survives new completions and relaunches; reopen the panel from the menu.
 
 Lifecycle hooks track sessions after they start or submit a prompt. The owning CLI process and its start time, when available, remove sessions that exit without a final hook. Other terminals' already-running sessions need a new session with hooks enabled; stored conversation history is not treated as an open session. Claude interruption without a hook can leave the last reported state until its next lifecycle event.
 

@@ -66,6 +66,9 @@ final class CompletionButton: NSButton {
         return NSSize(width: text.width + (image == nil ? 0 : 18) + (plain ? 0 : 24), height: height)
     }
     override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current?.cgContext.setBlendMode(.normal)
         let color: NSColor = isEnabled ? (foreground ?? (prominent ? .white : .labelColor)) : .tertiaryLabelColor
         if !plain {
             let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
@@ -112,6 +115,7 @@ final class CompletionButton: NSButton {
         }
     }
 }
+
 
 enum CompletionMotion {
     static let interval: TimeInterval = 12

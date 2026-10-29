@@ -25,10 +25,8 @@ import QuartzCore
     }
     var opened: String?
     var dismissed: String?
-    var all = false
     panel.onOpen = { opened = $0.id }
     panel.onAcknowledge = { dismissed = $0 }
-    panel.onAcknowledgeAll = { all = true }
     panel.show(events, animateNew: false)
     RunLoop.main.run(until: Date().addingTimeInterval(0.2))
     panel.panel.contentView?.layoutSubtreeIfNeeded()
@@ -84,11 +82,10 @@ import QuartzCore
     try expect(primaryFrame.contains(panel.panel.frame), "Disconnecting the chosen display returns the panel to the primary display")
     let open = buttons.first { $0.identifier?.rawValue == "completion-open" }!
     open.performClick(nil)
-    try expect(opened == "event-0" && dismissed == nil && !all, "Opening the correct session does not dismiss it")
+    try expect(opened == "event-0" && dismissed == nil, "Opening the correct session does not dismiss it")
     buttons.first { $0.identifier?.rawValue == "completion-dismiss" }!.performClick(nil)
     try expect(dismissed == "event-0", "Individual confirmation identifies its own card")
-    buttons.first { $0.title == L10n.text("모두 확인", "Dismiss all") }!.performClick(nil)
-    try expect(all, "Confirm-all action is wired")
+    try expect(buttons.allSatisfy { $0.title != L10n.text("모두 확인", "Dismiss all") }, "The header has no dismiss-all action")
     try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "The floating inbox has no internal scroll view")
     let next = descendants(panel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }
     try expect(next != nil && next!.isEnabled, "Overflow completions are available through page controls")
@@ -98,42 +95,27 @@ import QuartzCore
     try expect(opened != "event-0", "The next page opens its own session")
     panel.show([], animateNew: false)
     try expect(!panel.panel.isVisible, "Last confirmation hides the empty panel")
-    try expect(panel.activeWiggle == nil, "Dismissing all cards cancels any running animation")
     panel.showEmpty("Waiting for a completed response")
     try expect(panel.panel.isVisible && !panel.panel.styleMask.contains(.titled), "An empty inbox also uses the custom floating panel")
     panel.show([], animateNew: false)
-    let motionSize = NSSize(width: 432, height: 594)
-    let motion = CompletionMotion.wiggle(size: motionSize)
-    let transforms = (motion.values as! [NSValue]).map { CATransform3DGetAffineTransform($0.caTransform3DValue) }
-    let pivot = CGPoint(x: motionSize.width / 2, y: motionSize.height / 2)
-    try expect(transforms.allSatisfy { transform in
-        let result = pivot.applying(transform)
-        return abs(result.x - pivot.x) < 0.001 && abs(result.y - pivot.y) < 0.001
-    }, "Rotation pins the top-right corner throughout the motion")
-    let angles = transforms.map { atan2($0.b, $0.a) * 180 / .pi }
-    try expect(angles.filter { $0 < -2.99 }.count == 3 && angles.filter { $0 > 2.99 }.count == 3,
-               "Three full left/right swings reach three degrees")
-    try expect(transforms.first!.isIdentity && transforms.last!.isIdentity && abs(motion.duration - 0.77) < 0.001,
-               "Seven 0.11-second legs return to the original position")
-    try expect(CompletionMotion.interval == 12, "Periodic reminder interval is twelve seconds")
     var reducedMotion = false
     let animated = CompletionPanel(reduceMotion: { reducedMotion })
     animated.panel.alphaValue = 0
     animated.panel.ignoresMouseEvents = true
     animated.show([events[0]], animateNew: true)
-    try expect(animated.activeWiggle != nil, "A new completion starts the custom rotation")
-    RunLoop.main.run(until: Date().addingTimeInterval(0.055))
-    let presented = animated.panel.contentView?.subviews.first?.layer?.presentation()?.transform
-    try expect(presented != nil && !CATransform3DIsIdentity(presented!), "The actual floating surface visibly rotates")
+    let initialCard = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }.first!
+    try expect(initialCard.layer?.animation(forKey: "sessionPromotion")?.duration == 0.6, "New completion uses a gentle 0.6-second slide")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+    let presented = initialCard.layer?.presentation()?.transform
+    try expect(presented != nil && !CATransform3DIsIdentity(presented!), "The row visibly slides during promotion")
+    try expect(animated.panel.contentView?.subviews.first?.layer?.animationKeys()?.isEmpty ?? true, "Promotion slides without shaking the floating surface")
     reducedMotion = true
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-    try expect(animated.activeWiggle == nil, "Enabling Reduce Motion immediately cancels the rotation")
-    animated.animate()
-    try expect(animated.activeWiggle == nil, "Reduce Motion suppresses periodic animation")
+    try expect(initialCard.layer?.animation(forKey: "sessionPromotion") == nil, "Reduce Motion immediately stops the slide")
+    animated.show([events[0]], animateNew: true)
+    try expect(descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }.allSatisfy { $0.layer?.animationKeys()?.isEmpty ?? true }, "Reduce Motion suppresses new promotion animations")
     reducedMotion = false
-    animated.animate()
     animated.show([], animateNew: false)
-    try expect(animated.activeWiggle == nil, "Dismissal cancels a running rotation")
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("aiquota-ui-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
     let codexConfig = directory.appendingPathComponent("codex/hooks.json")
@@ -180,9 +162,10 @@ import QuartzCore
     waitForCount(2)
     try expect(controller.unreadCount == 2, "Controller discovers a completion received while running")
     guard let window = NSApplication.shared.windows.first(where: { $0.isVisible && $0 is NSPanel }), let content = window.contentView else { throw CompletionError.unavailable }
-    let dismiss = descendants(content).compactMap { $0 as? NSButton }.first { $0.title == L10n.text("모두 확인", "Dismiss all") }!
-    dismiss.performClick(nil)
-    waitForCount(0)
+    for remaining in [1, 0] {
+        descendants(content).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-dismiss" }!.performClick(nil)
+        waitForCount(remaining)
+    }
     try expect(controller.unreadCount == 0, "Actual dismiss action updates the controller")
     try expect(try store.load().unread.isEmpty, "Actual dismiss action persists across relaunch")
     try store.record(events[2])
@@ -199,12 +182,15 @@ import QuartzCore
     let activityViews = descendants(animated.panel.contentView!)
     let spinners = activityViews.compactMap { $0 as? SessionSpinner }
     try expect(spinners.contains(where: \.isAnimating), "Running sessions have a rotating activity indicator")
-    try expect(animated.activeWiggle == nil, "Idle and running rows do not trigger completion wiggles")
+    try expect(animated.panel.contentView?.subviews.first?.layer?.animationKeys()?.isEmpty ?? true, "Working rows do not animate the floating surface")
     try expect(activityViews.compactMap { $0 as? CompletionCard }.count == 2, "Both idle and running sessions appear before a completion")
     var attention = idle; attention.needsAttention = true
     animated.showSessions([attention, running], animateNew: true)
     let promoted = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }.first { $0.row.id == idle.id }!
     try expect(promoted.layer?.animation(forKey: "sessionPromotion") != nil, "An existing session animates upward when promoted to attention")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    try expect((promoted.layer?.presentation()?.frame.minY ?? 0) > promoted.frame.minY,
+               "A promoted row starts below its final position and slides upward in the flipped list")
     reducedMotion = true
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     try expect(descendants(animated.panel.contentView!).compactMap { $0 as? SessionSpinner }.allSatisfy { !$0.isAnimating }, "Reduce Motion stops activity animation")
@@ -268,7 +254,18 @@ import QuartzCore
     let childOpen = descendants(childCard).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-open" }!
     try expect(childOpen.toolTip == L10n.text("부모 세션 열기", "Open parent session"), "Child navigation explicitly identifies its parent terminal destination")
     try expect(descendants(animated.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Tree layout retains pagination without internal scrolling")
+    animated.showSessions([idle, running], animateNew: false)
+    animated.remindUnread()
+    try expect(animated.activeReminder == nil, "Working and idle rows never trigger the periodic reminder")
+    animated.showSessions([attention, running], animateNew: false)
+    reducedMotion = false
+    animated.remindUnread()
+    try expect(animated.activeReminder != nil, "An unread completed response enables the periodic reminder")
+    animated.showSessions([idle, running], animateNew: false)
+    try expect(animated.activeReminder == nil, "Confirming the last completion stops the reminder even when sessions remain open")
     animated.hide()
+    animated.remindUnread()
+    try expect(animated.activeReminder == nil, "Closing the panel stops reminder motion")
     panel.show(events, animateNew: false)
     panel.setPageSize(5)
     try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.count == 5,
