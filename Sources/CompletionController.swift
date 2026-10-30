@@ -120,7 +120,10 @@ import AppKit
                     let unavailable: Bool
                     do { live = try discover(); unavailable = false }
                     catch { live = previous.map { var value = $0; value.activity = .unknown; return value }; unavailable = true }
-                    if !unavailable { try store.recordObservedCompletions(live, previous: previous) }
+                    if !unavailable {
+                        try store.reconcileOrcaSessions(live)
+                        try store.recordObservedCompletions(live, previous: previous)
+                    }
                     let state = try store.load()
                     return (state.unread, SessionRow.make(state: state, discovered: live), live, unavailable)
                 }.value

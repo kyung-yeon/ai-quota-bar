@@ -131,6 +131,46 @@ func sessionTests() throws {
     let adopted = SessionRow.make(state: try adoption.load(), discovered: discovered)
     try expect(adopted.count == 1 && adopted[0].event.sessionID == "native-id" && adopted[0].needsAttention && adopted[0].activity == .running,
                "First native hook adopts an unread runtime identity without duplicating or dismissing it")
+    let missingBinding = CompletionStore(directory: directory.appendingPathComponent("missing-binding"))
+    let ownerEnv = ["AIQUOTABAR_OWNER_PID": "42", "AIQUOTABAR_OWNER_START": "start"]
+    try missingBinding.receive(prompt, provider: .codex, environment: ownerEnv)
+    try missingBinding.recordObservedCompletions([finished], previous: discovered)
+    let beforeRepair = SessionRow.make(state: try missingBinding.load(), discovered: discovered, isAlive: { _ in true })
+    try expect(beforeRepair.count == 2, "Missing terminal metadata reproduces separate native and runtime rows")
+    try missingBinding.reconcileOrcaSessions(discovered, isAlive: { _ in true }, resolve: { _ in discovered[0].event.destination })
+    let repaired = SessionRow.make(state: try missingBinding.load(), discovered: discovered, isAlive: { _ in true })
+    try expect(repaired.count == 1 && repaired[0].event.sessionID == "native-id" && repaired[0].needsAttention,
+               "Verified process binding adopts the runtime completion into one native session")
+    try expect(repaired[0].event.destination == discovered[0].event.destination,
+               "The unified card opens the verified Orca terminal")
+    try missingBinding.acknowledge(repaired[0].event.id)
+    try missingBinding.recordObservedCompletions([finished], previous: discovered)
+    try expect(try missingBinding.load().unread.isEmpty, "Repair retains completion replay protection")
+    let unresolved = CompletionStore(directory: directory.appendingPathComponent("unresolved"))
+    try unresolved.receive(prompt, provider: .codex, environment: ownerEnv)
+    try unresolved.reconcileOrcaSessions(discovered, resolve: { _ in nil })
+    try expect(try unresolved.load().sessions!.values.first!.event.destination.host == .unsupported,
+               "An unverifiable or dead owner never receives a guessed terminal binding")
+    try unresolved.reconcileOrcaSessions(discovered, resolve: { _ in SessionDestination(host: .orca, target: "term_elsewhere") })
+    try expect(try unresolved.load().sessions!.values.first!.event.destination.host == .unsupported,
+               "An inherited handle must exist in the current runtime")
+    try unresolved.reconcileOrcaSessions(discovered, resolve: { _ in SessionDestination(host: .orca, target: "term_live", profile: "/another-profile") })
+    try expect(try unresolved.load().sessions!.values.first!.event.destination.host == .unsupported,
+               "A matching handle in a different profile cannot merge sessions")
+    let otherPrompt = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"another-native","cwd":"/project"}"#.utf8)
+    try unresolved.receive(otherPrompt, provider: .codex, environment: ownerEnv)
+    try unresolved.reconcileOrcaSessions(discovered, isAlive: { _ in true }, resolve: { _ in discovered[0].event.destination })
+    try expect(try unresolved.load().sessions!.values.allSatisfy { $0.event.destination.host == .unsupported },
+               "Two native identities sharing an inherited handle remain separate")
+    let restarted = CompletionStore(directory: directory.appendingPathComponent("restarted"))
+    try restarted.receive(otherPrompt, provider: .codex, environment: ["AIQUOTABAR_OWNER_PID": "40", "AIQUOTABAR_OWNER_START": "old",
+        "TERM_PROGRAM": "Orca", "ORCA_TERMINAL_HANDLE": "term_live"])
+    try restarted.receive(prompt, provider: .codex, environment: ownerEnv)
+    try restarted.reconcileOrcaSessions(discovered, isAlive: { $0.pid == 42 }, resolve: { _ in discovered[0].event.destination })
+    let restartedRows = SessionRow.make(state: try restarted.load(), discovered: discovered, isAlive: { $0.pid == 42 })
+    try expect(restartedRows.count == 1 && restartedRows[0].event.sessionID == "native-id",
+               "A dead previous owner does not block binding a restarted session in the same tab")
+    try processBindingTests { condition, message in try expect(condition, message) }
     try observedStore.acknowledgeAll()
     try observedStore.recordObservedCompletions([finished], previous: discovered)
     try expect(try observedStore.load().unread.isEmpty, "Replaying a runtime completion cannot undo acknowledgement")
@@ -142,4 +182,38 @@ func sessionTests() throws {
         throw NSError(domain: "Truncated discovery accepted", code: 1)
     } catch CompletionError.unavailable { count += 1 }
     print("PASS: \(count) session lifecycle and discovery checks")
+}
+
+private func processBindingTests(_ expect: (Bool, String) throws -> Void) throws {
+    var argc: Int32 = 2
+    var bytes = withUnsafeBytes(of: &argc) { Data($0) }
+    bytes.append(Data("/bin/codex\0\0codex\0PRIVATE_ARG\0SECRET_KEY=PRIVATE\0TERM_PROGRAM=Orca\0ORCA_TERMINAL_HANDLE=term_live\0ORCA_USER_DATA_PATH=/profile with spaces\0SSH_CONNECTION=inherited\0\0".utf8))
+    let env = OrcaProcessBinding.routingEnvironment(bytes)
+    try expect(env == ["TERM_PROGRAM": "Orca", "ORCA_TERMINAL_HANDLE": "term_live", "ORCA_USER_DATA_PATH": "/profile with spaces"],
+               "Process parsing skips arguments and secrets while preserving routing paths with spaces")
+    try expect(OrcaProcessBinding.routingEnvironment(Data(bytes.prefix(8))).isEmpty,
+               "Truncated process metadata cannot produce a binding")
+    let owner = SessionOwner(pid: 42, startedAt: "start")
+    let localHost = "/profile/Orca Terminal Host.app/Contents/MacOS/orca-terminal-host"
+    func ancestor(_ pid: Int32) -> (pid: Int32, executable: String)? {
+        pid == 42 ? (41, "/bin/codex") : (1, localHost)
+    }
+    let resolved = OrcaProcessBinding.destination(for: owner, isAlive: { _ in true }, environment: { _ in env }, parent: ancestor)
+    try expect(resolved?.target == "term_live", "A verified local Orca owner recovers its exact handle")
+    for blocker in ["ssh", "sshd", "tmux", "screen", "herdr"] {
+        let rejected = OrcaProcessBinding.destination(for: owner, isAlive: { _ in true }, environment: { _ in env }, parent: {
+            $0 == 42 ? (41, "/bin/codex") : $0 == 41 ? (40, "/bin/" + blocker) : (1, localHost)
+        })
+        try expect(rejected == nil, "Intervening \(blocker) prevents inherited terminal adoption")
+    }
+    for key in ["TMUX", "STY", "HERDR_PANE_ID"] {
+        try expect(OrcaProcessBinding.destination(for: owner, isAlive: { _ in true },
+            environment: { _ in env.merging([key: "present"]) { _, new in new } }, parent: ancestor) == nil,
+            "\(key) prevents an inherited terminal binding")
+    }
+    var reads = 0
+    try expect(OrcaProcessBinding.destination(for: owner, isAlive: { _ in reads += 1; return reads == 1 },
+        environment: { _ in env }, parent: ancestor) == nil, "Owner exit or PID reuse during lookup invalidates the binding")
+    try expect(OrcaProcessBinding.destination(for: owner, isAlive: { _ in true }, environment: { _ in env },
+        parent: { _ in (1, "/bin/codex") }) == nil, "An Orca environment alone does not prove local ownership")
 }

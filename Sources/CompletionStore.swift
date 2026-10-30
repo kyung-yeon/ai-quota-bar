@@ -118,6 +118,51 @@ struct CompletionStore {
         }
     }
 
+    func reconcileOrcaSessions(_ discovered: [LiveSession],
+                               isAlive: (SessionOwner) -> Bool = { $0.isAlive },
+                               resolve: (SessionOwner) -> SessionDestination? = { OrcaProcessBinding.destination(for: $0) }) throws {
+        let targets = Set(discovered.filter { $0.usesParentDestination != true }.compactMap { $0.event.terminalKey })
+        guard !targets.isEmpty else { return }
+        let snapshot = try load()
+        var bindings: [String: LiveSession] = [:]
+        for (key, var session) in snapshot.sessions ?? [:] {
+            guard session.usesParentDestination != true, session.event.destination.host == .unsupported,
+                  session.event.destination.herdr == nil, let owner = session.owner, let target = resolve(owner) else { continue }
+            session.event.destination = target
+            guard let terminal = session.event.terminalKey, targets.contains(terminal) else { continue }
+            bindings[key] = session
+        }
+        guard !bindings.isEmpty else { return }
+        // A CLI can exit without SessionEnd. Its persisted record must not block
+        // a new live owner in the same tab. Check lifetimes outside the file lock.
+        let deadOwners = (snapshot.sessions ?? [:]).values.compactMap(\.owner).filter { !isAlive($0) }
+        try update { state in
+            for (key, binding) in bindings {
+                guard let current = state.sessions?[key], current.owner == binding.owner,
+                      current.updatedAt == binding.updatedAt, current.event.destination.host == .unsupported else { continue }
+                let terminal = binding.event.terminalKey
+                // Never collapse different native sessions that share an inherited handle.
+                let candidates = (state.sessions ?? [:]).map { bindings[$0.key] ?? $0.value }
+                guard !deadOwners.contains(binding.owner!), candidates.filter({
+                    $0.usesParentDestination != true && $0.event.terminalKey == terminal
+                        && !($0.owner.map(deadOwners.contains) ?? false)
+                }).count == 1 else { continue }
+                state.sessions?[key]?.event.destination = binding.event.destination
+                for index in state.events.indices {
+                    let old = state.events[index]
+                    if old.sessionKey == binding.key {
+                        state.events[index].destination = binding.event.destination
+                    } else if old.sessionID.hasPrefix("orca:"), old.terminalKey == terminal {
+                        state.events[index] = CompletionEvent(id: old.id, providerID: binding.event.providerID,
+                            sessionID: binding.event.sessionID, project: binding.event.project, directory: binding.event.directory,
+                            sessionName: binding.event.sessionName, completedAt: old.completedAt,
+                            destination: binding.event.destination, acknowledgedAt: old.acknowledgedAt)
+                    }
+                }
+            }
+        }
+    }
+
     func recordObservedCompletions(_ current: [LiveSession], previous: [LiveSession]) throws {
         let changed = current.filter { session in
             session.activity == .idle && session.completionToken != nil && previous.contains {
