@@ -277,6 +277,40 @@ import QuartzCore
     try expect(!panel.panel.isVisible && panel.preferredPageSize == 15, "Changing size while hidden does not reopen the panel")
     panel.setPageSize(0)
     try expect(panel.preferredPageSize == 15, "Invalid page size cannot create an empty or unbounded layout")
+    panel.setPageSize(5)
+    panel.show(events, animateNew: false)
+    let header = descendants(panel.panel.contentView!).first { $0.identifier?.rawValue == "completion-header" }
+    try expect(header != nil, "The floating header exposes a double-click target")
+    func clickHeader(_ clicks: Int) {
+        let location = header!.convert(NSPoint(x: 15, y: header!.bounds.midY), to: nil)
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.panel.windowNumber,
+            context: nil, eventNumber: 0, clickCount: clicks, pressure: 1)!
+        header!.mouseDown(with: event)
+    }
+    let expandedFrame = panel.panel.frame
+    clickHeader(2)
+    try expect(panel.panel.frame.height <= 100 && panel.panel.frame.maxY == expandedFrame.maxY,
+               "Double-click collapses to just the header while keeping the top edge fixed")
+    try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.allSatisfy(\.isHiddenOrHasHiddenAncestor),
+               "Collapsed session cards cannot be seen or clicked")
+    panel.show(Array(events.prefix(8)), animateNew: true)
+    panel.showError("Example error")
+    try expect(panel.panel.frame.height <= 100, "Completions and errors cannot expand a collapsed panel")
+    let restoredCollapse = CompletionPanel(visibleFrames: { screens }, preferences: preferences)
+    restoredCollapse.panel.alphaValue = 0; restoredCollapse.panel.ignoresMouseEvents = true
+    restoredCollapse.show(events, animateNew: false)
+    try expect(restoredCollapse.panel.frame.height <= 100, "Collapsed preference survives a new panel instance")
+    restoredCollapse.hide()
+    clickHeader(2)
+    try expect(panel.panel.frame.height > 100 && panel.panel.frame.maxY == expandedFrame.maxY,
+               "A second double-click restores the current list below the same header")
+    try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.count == 5,
+               "Expanding retains the selected page size")
+    let closeInHeader = descendants(header!).compactMap { $0 as? NSButton }.first!
+    let buttonPoint = closeInHeader.convert(NSPoint(x: closeInHeader.bounds.midX, y: closeInHeader.bounds.midY), to: header!.superview)
+    try expect(header!.hitTest(buttonPoint) === closeInHeader, "The close button keeps its own hit target")
+    panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }
 

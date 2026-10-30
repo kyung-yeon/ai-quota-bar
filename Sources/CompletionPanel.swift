@@ -9,6 +9,19 @@ private final class CompletionWindow: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+private final class CompletionHeader: NSStackView {
+    var onDoubleClick: (() -> Void)?
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        return hit is NSButton ? hit : self
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { onDoubleClick?() }
+        else { window?.performDrag(with: event) }
+    }
+}
+
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
@@ -37,6 +50,7 @@ private final class CompletionWindow: NSPanel {
     private var count = 0
     private let visibleFrames: () -> [NSRect]
     private let preferences: UserDefaults
+    private var isCollapsed: Bool
     private let reduceMotion: () -> Bool
     private var positioning = true
     static let windowInset: CGFloat = 24
@@ -49,6 +63,7 @@ private final class CompletionWindow: NSPanel {
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.visibleFrames = visibleFrames
         self.preferences = preferences
+        self.isCollapsed = preferences.bool(forKey: "sessionPanelCollapsed")
         self.reduceMotion = reduceMotion
         panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -79,7 +94,10 @@ private final class CompletionWindow: NSPanel {
         close.toolTip = L10n.text("플로팅 닫기", "Close floating panel")
         close.setAccessibilityLabel(close.toolTip!)
         close.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        let header = NSStackView(views: [heading, pill, NSView(), close]); header.spacing = 8
+        let header = CompletionHeader(views: [heading, pill, NSView(), close]); header.spacing = 8
+        header.identifier = NSUserInterfaceItemIdentifier("completion-header")
+        header.toolTip = L10n.text("두 번 클릭하여 접기 또는 펼치기", "Double-click to collapse or expand")
+        header.onDoubleClick = { [weak self] in self?.toggleCollapsed() }
         previous.identifier = NSUserInterfaceItemIdentifier("completion-previous-page")
         next.identifier = NSUserInterfaceItemIdentifier("completion-next-page")
         previous.setAccessibilityLabel(L10n.text("이전 알림", "Previous completions"))
@@ -173,7 +191,7 @@ private final class CompletionWindow: NSPanel {
         panel.orderFrontRegardless()
         panel.contentView?.layoutSubtreeIfNeeded()
         updateActivityMotion()
-        if animateNew, !reduceMotion() {
+        if animateNew, !isCollapsed, !reduceMotion() {
             for card in list.arrangedSubviews.compactMap({ $0 as? CompletionCard }) {
                 let current = panel.convertToScreen(card.convert(card.bounds, to: panel.contentView))
                 let screenOffset = oldPositions[card.row.id].map { $0.minY - current.minY } ?? -20
@@ -194,7 +212,7 @@ private final class CompletionWindow: NSPanel {
         clearList(resetError: false)
         let pages = SessionTree.pages(displayedRows, capacity: pageSize)
         pageIndex = min(max(0, pageIndex), pages.count - 1)
-        pagination.isHidden = pages.count == 1
+        pagination.isHidden = isCollapsed || pages.count == 1
         pageLabel.stringValue = "\(pageIndex + 1) / \(pages.count)"
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages.count
@@ -225,7 +243,7 @@ private final class CompletionWindow: NSPanel {
     }
 
     func showError(_ message: String?) {
-        errorLabel.stringValue = message ?? ""; errorLabel.isHidden = message == nil
+        errorLabel.stringValue = message ?? ""; errorLabel.isHidden = isCollapsed || message == nil
         if panel.isVisible || message != nil { position() }
         if message != nil && panel.isVisible { panel.orderFrontRegardless() }
     }
@@ -244,7 +262,14 @@ private final class CompletionWindow: NSPanel {
     }
 
     private func updateActivityMotion() {
-        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(panel.isVisible && !reduceMotion()) }
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(panel.isVisible && !isCollapsed && !reduceMotion()) }
+    }
+
+    private func toggleCollapsed() {
+        isCollapsed.toggle()
+        preferences.set(isCollapsed, forKey: "sessionPanelCollapsed")
+        position()
+        updateActivityMotion()
     }
 
     private func clearList(resetError: Bool = true) {
@@ -271,6 +296,9 @@ private final class CompletionWindow: NSPanel {
         let screenFrame = currentScreen ?? primary
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
         let width = min(432 + Self.windowInset * 2, visible.width)
+        list.isHidden = isCollapsed
+        pagination.isHidden = isCollapsed || SessionTree.pages(displayedRows, capacity: pageSize).count == 1
+        errorLabel.isHidden = isCollapsed || errorLabel.stringValue.isEmpty
         if count > 0 {
             let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / 54)))
             if capacity != pageSize { pageSize = capacity; renderPage() }

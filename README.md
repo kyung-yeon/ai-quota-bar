@@ -90,6 +90,8 @@ Use **Open floating panel / Close floating panel** in the menu bar, or the **×*
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
+Double-click the **AI sessions** header to collapse the panel to its title, count, and close button. Double-click again to expand it. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
+
 This is a custom floating window with compact 48-point cards, independent of macOS notification banners. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
 
 Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets display an explanation; open or resume those sessions in their original terminal. Automatic setup preserves existing hooks and backs up changed configuration files. Missing tools are skipped and detected after installation; invalid or disabled hook settings are left intact and shown as a connection issue.
