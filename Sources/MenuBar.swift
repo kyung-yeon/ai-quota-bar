@@ -124,7 +124,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         ?? L10n.text("유효기간 제한 없음", "No expiration")
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var status: NSStatusItem!
     private let menu = NSMenu()
     private var timer: Timer?
@@ -133,25 +133,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuOpen = false
     private var cardItems: [Provider: NSMenuItem] = [:]
     private var refreshItem: NSMenuItem?
+    private var completions: CompletionController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         menu.autoenablesItems = false
         menu.delegate = self
         status.menu = menu
+        if !CommandLine.arguments.contains("--smoke-test") {
+            let completions = CompletionController()
+            self.completions = completions
+            completions.onCountChanged = { [weak self] _ in self?.render() }
+            completions.onConnectionChanged = { [weak self] in self?.render() }
+            completions.onVisibilityChanged = { [weak self] in self?.render() }
+            completions.start()
+        }
         render()
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.render()
-            for provider in Provider.allCases where Date().timeIntervalSince(self.states[provider]?.attemptedAt ?? .distantPast) >= 300 {
-                self.refresh(provider)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.render()
+                for provider in Provider.allCases where Date().timeIntervalSince(self.states[provider]?.attemptedAt ?? .distantPast) >= 300 {
+                    self.refresh(provider)
+                }
             }
         }
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.refresh() }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } }
     }
 
-    @objc func refresh() { Provider.allCases.forEach { refresh($0) } }
+    @objc func refresh() {
+        completions?.refreshConnections(force: true)
+        Provider.allCases.forEach { refresh($0) }
+    }
 
     private func refresh(_ provider: Provider, allowKeychainPrompt: Bool = false) {
         guard states[provider]?.fetching == false else { return }
@@ -202,6 +216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else { title.append(NSAttributedString(string: provider.name)) }
             title.append(NSAttributedString(string: " \(states[provider]!.summary(at: now))", attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor]))
         }
+        if let count = completions?.unreadCount, count > 0 {
+            title.append(NSAttributedString(string: "  ● \(count)", attributes: [.foregroundColor: NSColor.controlAccentColor, .font: NSFont.systemFont(ofSize: 12, weight: .semibold)]))
+        }
         status.button?.attributedTitle = title
         let summary = Provider.allCases.map { "\($0.name): \(states[$0]!.summary(at: now))" }.joined(separator: " · ")
         status.button?.toolTip = "AiQuotaBar · \(summary)"
@@ -244,6 +261,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let info = NSMenuItem(title: L10n.text("5분마다 갱신", "Refreshes every 5 minutes") + " · " + TimeZone.autoupdatingCurrent.identifier, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
+        _ = action(completions?.isOpen == true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
+        let settings = NSMenuItem(title: L10n.text("플로팅 설정", "Floating panel settings"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for size in CompletionPanel.pageSizeOptions {
+            let option = NSMenuItem(title: L10n.text("페이지당 \(size)개", "\(size) rows per page"), action: #selector(setCompletionPageSize(_:)), keyEquivalent: "")
+            option.target = self; option.tag = size
+            option.state = (completions?.pageSize ?? 10) == size ? .on : .off
+            submenu.addItem(option)
+        }
+        settings.submenu = submenu
+        menu.addItem(settings)
+        if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
+            _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
+        }
         let busy = states.values.contains { $0.fetching }
         let refresh = action(busy ? L10n.text("갱신 중…", "Refreshing…") : L10n.text("지금 새로고침", "Refresh now"), #selector(refresh as () -> Void), key: "r")
         refresh.isEnabled = !busy
@@ -262,5 +294,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(provider.setupURL)
     }
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
+    @objc private func showCompletions() { completions?.toggle() }
+    @objc private func setCompletionPageSize(_ item: NSMenuItem) { completions?.setPageSize(item.tag); render() }
+    @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

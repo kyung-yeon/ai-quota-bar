@@ -15,56 +15,49 @@ Codex와 Claude Code 사용량을 함께 확인하는 macOS 메뉴 막대 앱입
 - Codex에서 제공하는 초기화권 개수와 각 유효기간을 표시합니다.
 - 서비스별로 **설치 필요**, **로그인 필요** 상태를 구분합니다.
 - 5분마다, 잠자기 해제 시, 또는 **⌘R**로 갱신합니다.
+- 여러 Codex·Claude Code 세션의 완료를 유지되는 플로팅 카드와 애니메이션으로 알리고, 세션 이동·개별 확인을 제공합니다.
 - macOS의 첫 번째 선호 언어가 한국어이면 한국어, 그 외에는 영어를 사용합니다. 날짜는 선택된 언어와 현재 시간대를 따릅니다. 시스템 언어를 변경한 뒤에는 앱을 다시 실행해 주세요.
 
 ## 준비 사항
 
 - Apple Silicon 또는 Intel Mac의 macOS 13 이상
-- 소스에서 빌드할 때만 Swift, Python 3, `make`가 포함된 Xcode Command Line Tools가 필요합니다. DMG 설치에는 필요하지 않습니다.
+- Swift, Python 3, Git, `make`가 포함된 Xcode Command Line Tools
 - 사용량을 확인할 서비스의 [Codex CLI](https://developers.openai.com/codex/cli/) 또는 [Claude Code](https://code.claude.com/docs/en/quickstart) 설치 및 로그인. 두 서비스가 모두 없어도 앱은 실행됩니다.
 
-## DMG로 설치
+## 커맨드로 설치
 
-**[macOS용 AiQuotaBar 다운로드](https://github.com/kyung-yeon/ai-quota-bar/releases/download/v0.1.0/AiQuotaBar-0.1.0-universal.dmg)** · [전체 릴리스 및 체크섬](https://github.com/kyung-yeon/ai-quota-bar/releases)
-
-1. DMG를 열고 **AiQuotaBar.app**을 **Applications**로 드래그합니다.
-2. DMG를 추출한 뒤 응용 프로그램에서 AiQuotaBar를 실행합니다.
-3. 메뉴 막대의 아이콘을 클릭해 사용량을 확인합니다. Dock에는 표시되지 않습니다.
-
-DMG를 열면 왼쪽의 AiQuotaBar와 오른쪽의 Applications가 작은 설치 창에 표시됩니다. 화살표 방향으로 앱을 끌어 복사하세요. 하나의 앱이 Apple Silicon·Intel을 모두 지원하며, 앱 번들 안에 영문·한국어 설치 안내가 포함됩니다. 로그인할 때 실행하려면 **시스템 설정 → 일반 → 로그인 항목 → 로그인 시 열기**에 설치된 앱을 추가하세요. 드래그 설치는 자동 실행을 등록하지 않습니다.
-
-**기존 설치 업데이트:** AiQuotaBar를 종료하고 기존 폴더의 앱을 교체하세요. `make install`로 설치했다면 `~/Applications/AiQuotaBar.app`을 그 위치에서 교체해야 기존 자동 실행이 유지됩니다. `/Applications`에 다른 사본을 만들지 마세요.
-
-**처음 실행할 때:** 이 배포본은 임시 서명을 사용하며 **Apple 공증을 받지 않았습니다**. macOS가 차단하면 먼저 이 프로젝트의 Releases에서 받은 파일인지 확인하세요. 배포본을 신뢰한다면 앱 실행을 시도한 뒤 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**를 이용할 수 있습니다. [Apple 안내](https://support.apple.com/ko-kr/102445)를 참고하세요.
-
-## 소스에서 설치
-
-1. Apple 명령줄 도구가 없다면 설치합니다.
+1. Apple 명령줄 도구가 없다면 아래 명령을 실행하고 설치가 끝날 때까지 기다립니다.
 
    ```sh
    xcode-select --install
    ```
 
-2. 터미널에서 이 소스 폴더로 이동한 뒤 실행합니다.
+2. 소스를 내려받고 설치합니다.
 
    ```sh
+   git clone https://github.com/kyung-yeon/ai-quota-bar.git
+   cd ai-quota-bar
    make install
    ```
 
-   현재 Mac의 아키텍처로 빌드하고 테스트를 실행한 뒤 로컬 서명한 앱을 `~/Applications/AiQuotaBar.app`에 설치하고 실행합니다. `sudo`는 필요하지 않습니다.
+   현재 Mac의 아키텍처로 빌드하고 테스트를 실행한 뒤 로컬 서명한 앱을 설치하고 실행합니다. 신규 설치는 `sudo` 없이 `~/Applications/AiQuotaBar.app`을 사용합니다. `~/Applications` 또는 `/Applications`에 기존 앱이 있으면 해당 위치에서 교체하므로 그 폴더의 쓰기 권한이 필요합니다. 두 곳에 모두 있으면 현재 자동 실행 항목이 가리키는 앱을 유지하고, 해당 항목이 없으면 사용자 폴더를 우선합니다.
 
 3. 메뉴 막대의 Codex·Claude 아이콘을 클릭해 사용량을 확인합니다. Dock에는 표시되지 않습니다.
 
-설치 프로그램은 `~/Library/LaunchAgents/local.kyungyeon.ai-quota-bar.plist`를 등록해 로그인할 때 자동 실행합니다. 기존 `~/Applications/Codex Weekly.app`이 있다면 해당 앱과 자동 실행 항목을 교체합니다. 이전 앱과 자동 실행 파일은 `~/Library/Application Support/AiQuotaBar/Backups/`에 보관하며, 설치 실패 시 이전 상태로 복구를 시도합니다.
+설치 프로그램은 `~/Library/LaunchAgents/local.kyungyeon.ai-quota-bar.plist`를 등록해 로그인할 때 자동 실행합니다. 기존 **Codex Weekly**와 두 Applications 폴더의 중복 사본을 정리하고, 설치용 `dist/AiQuotaBar.app`도 삭제해 설치된 앱 하나만 남깁니다. 앱 백업 사본은 남기지 않으며, 교체에 실패하면 이전 앱과 자동 실행 항목으로 복구를 시도합니다.
 
-설치하지 않고 앱 번들만 만들려면:
+### 업데이트
+
+기존 소스 폴더에서 실행합니다.
 
 ```sh
-make package
-open dist/AiQuotaBar.app
+git pull --ff-only
+make install
 ```
 
-로컬 빌드에는 임시 서명을 적용합니다. 앱의 `Contents/Resources/source/`에도 수정 가능한 소스를 포함합니다.
+계정 설정과 알림 데이터는 유지됩니다.
+
+설치하지 않고 개발용 앱 번들만 만들려면 `make package`를 실행합니다. 로컬 빌드에는 임시 서명을 적용하며, 앱의 `Contents/Resources/source/`에도 수정 가능한 소스를 포함합니다.
 
 ## 계정 연결
 
@@ -79,7 +72,25 @@ open dist/AiQuotaBar.app
 | 갱신 필요 | 조회 결과가 15분 이상 지났거나 초기화 시각이 지났습니다. |
 | 연결 확인 필요 / 조회 시간 초과 | 네트워크를 확인한 뒤 다시 조회하세요. 다른 서비스는 독립적으로 동작합니다. |
 
-표준 Homebrew 경로, `~/.local/bin`, 실행 환경의 `PATH`, nvm의 Node 설치 경로, `~/.claude/local/claude`를 확인합니다. 로컬 패키징은 빌드할 때 발견한 CLI 경로도 기록하지만 배포용 DMG에는 제작한 Mac의 경로를 넣지 않습니다. 다른 경로에 설치했다면 해당 CLI가 `PATH`에 포함된 터미널에서 빌드하세요. 사용자 지정 계정 설정에 필요한 환경 변수는 앱 실행 환경에도 전달해야 합니다. Finder는 셸 설정을 자동으로 상속하지 않습니다.
+표준 Homebrew 경로, `~/.local/bin`, 실행 환경의 `PATH`, nvm의 Node 설치 경로, `~/.claude/local/claude`를 확인합니다. 로컬 패키징은 빌드할 때 발견한 CLI 경로도 기록합니다. 다른 경로에 설치했다면 해당 CLI가 `PATH`에 포함된 터미널에서 빌드하세요. 사용자 지정 계정 설정에 필요한 환경 변수는 앱 실행 환경에도 전달해야 합니다. Finder는 셸 설정을 자동으로 상속하지 않습니다.
+
+## 완료 알림
+
+AiQuotaBar를 실행하면 설치된 Codex·Claude Code CLI의 완료 알림이 자동으로 연결됩니다. 별도 연결 메뉴나 설정 대화 상자는 없으며, 연결 후 새 에이전트 세션을 시작하면 됩니다. Codex 자체의 보안 절차에 따라 `/hooks`에서 새 훅을 검토하고 신뢰하는 과정은 필요합니다. 플로팅 목록에는 열려 있는 세션도 표시합니다. 대기 중인 행은 회색, 작업 중인 행은 회전 표시로 구분하고, 확인이 필요한 완료는 애니메이션과 함께 맨 위로 올립니다. 서비스·세션별로 행 하나만 표시하며 새 완료가 오면 갱신합니다. 확인한 세션도 열려 있으면 대기 목록에 남습니다. 하위 에이전트는 부모 아래에 연결선과 들여쓰기로 표시하며, 제공된 모델 정보도 함께 보여줍니다. 프로젝트·세션·완료 시각이 표시된 카드는 확인할 때까지 유지되며 앱 재실행 후에도 복원됩니다. 세션을 열기만 해서는 확인 처리하지 않습니다.
+
+미확인 하위 에이전트는 세션이 종료되거나 앱을 재실행해도 부모 아래 트리를 유지합니다. `codex exec --ephemeral`로 확인되는 일회성 자동 작업은 명시적인 하위 에이전트 관계가 있는 경우를 제외하고 새 알림에서 제외합니다. 출처를 확인할 수 없는 기존 알림은 보존합니다.
+
+상단 바 메뉴의 **플로팅 열기 / 플로팅 닫기** 또는 오른쪽 위 **×** 버튼으로 열고 닫을 수 있습니다. **플로팅 설정**에서 페이지당 5·10(기본)·15·20개를 선택할 수 있으며 설정은 저장됩니다. 닫아도 수집과 미확인 데이터는 유지하며, 새 완료나 앱 재실행으로 자동으로 다시 열리지 않습니다.
+
+알림은 처음에 메인 모니터에 표시됩니다. 상단이나 빈 배경을 드래그해 다른 모니터로 옮길 수 있으며, 새 알림이 오거나 앱을 다시 실행해도 옮긴 위치를 유지합니다. 해당 모니터의 연결을 해제하면 메인 모니터로 돌아옵니다.
+
+**AI 세션** 상단을 더블클릭하면 제목·개수·닫기 버튼만 남도록 접힙니다. 다시 더블클릭하면 펼쳐집니다. 접혀 있어도 세션 수집은 계속하며, 새 완료나 앱 재실행 후에도 접힌 상태를 유지합니다.
+
+기본 OS 알림 배너와 별개인 자체 플로팅 창입니다. 높이 48pt의 작은 카드에 서비스 아이콘·프로젝트·세션·완료 시각과 작은 동작 버튼을 표시합니다. 완료된 행은 0.6초 동안 부드럽게 위로 이동합니다. 완료 후 아직 확인하지 않은 항목이 있을 때만 주기적으로 흔들리며, 작업 중·대기 항목만 있으면 흔들리지 않습니다. ‘동작 줄이기’ 설정을 따릅니다.
+
+Terminal, iTerm2, Warp, cmux, Orca, WezTerm, 설정된 kitty 세션의 직접 이동을 구현했습니다. Herdr는 바깥 터미널을 정확히 찾기 위한 접속 래퍼가 필요합니다. 지원하지 않거나 닫힌 탭은 이유를 표시하며, 원래 터미널에서 직접 열거나 재개해야 합니다. 자동 연결은 기존 훅을 보존하고 변경되는 설정 파일을 백업합니다. 설치되지 않은 도구는 건너뛰고 나중에 설치하면 감지하며, 잘못된 설정이나 비활성화된 훅은 그대로 두고 연결 문제로 표시합니다.
+
+버전·환경별 조건, Herdr 접속, 사용자 지정 프로필, 완료의 의미와 데이터 보관 방식은 [완료 알림 가이드](Docs/Notifications.ko.md)를 참고하세요.
 
 ## 초기화권과 데이터 출처
 
@@ -99,6 +110,7 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 ./build/AiQuotaBar --smoke-test     # 메뉴 막대 생성·조회·상태 출력 후 종료
 ./build/AiQuotaBar --self-test --language en
 ./build/AiQuotaBar --self-test --language ko
+./build/AiQuotaBar --completion-ui-test --language ko  # 샘플 UI·저장 검증, 실제 에이전트 호출 없음
 ```
 
 샘플 데이터로 화면을 렌더링할 수 있습니다. 아래 화면의 수치는 실제 계정 사용량이 아닙니다.
@@ -106,19 +118,15 @@ make check                        # 실제 계정 사용량 읽기 전용 조회
 ```sh
 ./build/AiQuotaBar --preview-demo --language en --preview /tmp/aiquota-en.png
 ./build/AiQuotaBar --preview-demo --language ko --dark --preview /tmp/aiquota-ko.png
+./build/AiQuotaBar --preview-completions /tmp/completions-en.png --language en
+./build/AiQuotaBar --preview-completions /tmp/completions-ko.png --language ko --dark
 ```
 
-구현: `Sources/` · 테스트: `Tests/` · 진입점: `main.swift` · 패키징: `package.py` · 설치: `install.py`.
-
-배포용 DMG를 만들려면:
-
-```sh
-make dmg
-```
-
-두 아키텍처를 빌드해 `dist/AiQuotaBar-0.1.0-universal.dmg`와 `.dmg.sha256` 체크섬을 생성합니다. 압축 전에 Finder로 창 크기·배경·아이콘 위치를 저장하므로 로그인된 macOS 데스크톱 세션에서 실행하세요. macOS가 요청하면 터미널의 Finder 제어를 허용합니다. 디스크 이미지 검증, 읽기 전용 마운트, 두 아키텍처·앱 서명·저장된 배치 확인, 마운트된 앱의 오프라인 테스트, 디스크 추출까지 수행하며 앱을 설치하거나 메뉴 막대에 실행하지 않습니다. 배포 패키징은 `dmg.py`, 배치 도구는 `Tools/`, 설치 안내는 `Docs/`에 있습니다.
+구현: `Sources/` · 테스트: `Tests/` · 진입점: `main.swift` · 패키징: `package.py` · 설치: `install.py`. 세션 수명 테스트는 임시 로컬 Unix 소켓을 사용하며, UI 테스트에는 로그인된 macOS 데스크톱 세션이 필요합니다.
 
 ## 자동 실행 해제 및 삭제
+
+앱을 삭제하기 전에 실행 파일의 `--remove-completion-hooks codex`와 `--remove-completion-hooks claude`를 서비스·사용자 지정 프로필마다 실행하세요([해제 명령](Docs/Notifications.ko.md#사용자-지정-프로필에이전트-관리-앱)). 미확인 알림 메타데이터는 `~/Library/Application Support/AiQuotaBar/Notifications/`에 별도로 남습니다.
 
 **AiQuotaBar 종료**는 현재 실행만 종료합니다. 다음 로그인에서도 실행하지 않으려면:
 
@@ -127,7 +135,7 @@ launchctl bootout "gui/$(id -u)/local.kyungyeon.ai-quota-bar"
 rm "$HOME/Library/LaunchAgents/local.kyungyeon.ai-quota-bar.plist"
 ```
 
-`bootout`에서 서비스를 찾을 수 없다고 하면 이미 종료된 상태입니다. 완전히 삭제하려면 `~/Applications/AiQuotaBar.app`도 휴지통으로 이동하세요. `~/Library/Application Support/AiQuotaBar/Backups/`의 백업은 복구용으로 보관하거나 별도로 삭제할 수 있습니다. Codex·Claude 설치와 계정은 영향을 받지 않습니다.
+`bootout`에서 서비스를 찾을 수 없다고 하면 이미 종료된 상태입니다. 완전히 삭제하려면 설치할 때 출력된 경로(`~/Applications` 또는 `/Applications`)의 `AiQuotaBar.app`을 휴지통으로 이동하세요. Codex·Claude 설치와 계정은 영향을 받지 않습니다.
 
 ## 라이선스
 

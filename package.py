@@ -24,9 +24,11 @@ def package(binary=None, destination=None, portable=False):
     shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
     shutil.copytree(ROOT / "Docs", resources / "Documentation")
     shutil.copytree(ROOT / "Assets", resources / "Assets")
-    for name in ["main.swift", "Info.plist", "Makefile", "README.md", "README.ko.md", "LICENSE", "package.py", "install.py", "dmg.py", "AppIcon.icns", "AppIcon.png", "icon-prompt.md", ".gitignore"]:
+    for locale in ["en.lproj", "ko.lproj"]:
+        shutil.copytree(ROOT / "Resources" / locale, resources / locale)
+    for name in ["main.swift", "Info.plist", "Makefile", "README.md", "README.ko.md", "LICENSE", "package.py", "install.py", "AppIcon.icns", "AppIcon.png", "icon-prompt.md", ".gitignore"]:
         shutil.copy2(ROOT / name, resources / "source" / name)
-    for name in ["Sources", "Tests", "Assets", "Docs", "Tools"]:
+    for name in ["Sources", "Tests", "Assets", "Docs", "Resources"]:
         shutil.copytree(ROOT / name, resources / "source" / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
     if not portable:
         for name in ["codex", "claude"]:

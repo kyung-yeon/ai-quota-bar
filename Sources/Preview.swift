@@ -1,6 +1,48 @@
 import AppKit
 
 enum Preview {
+    static func completionEvents() -> [CompletionEvent] {
+        let projects = ["website", "api-service"]
+        let names = [L10n.text("계정 설정 화면 개선", "Update account settings"), L10n.text("API 통합 테스트 추가", "Add API integration tests")]
+        var demo: [CompletionEvent] = []
+        for index in projects.indices {
+            let provider = index % 2 == 0 ? "codex" : "claude"
+            let destination = SessionDestination(host: index % 2 == 0 ? .cmux : .orca, target: "demo")
+            let completedAt = Date().addingTimeInterval(Double(-index * 75))
+            demo.append(CompletionEvent(id: "demo-\(index)", providerID: provider, sessionID: "sample-session-\(index)",
+                project: projects[index], directory: "/projects/sample", sessionName: names[index], completedAt: completedAt, destination: destination))
+        }
+        return demo
+    }
+
+    @MainActor static func completions(path: String) {
+        let panel = CompletionPanel()
+        panel.panel.alphaValue = 0
+        panel.panel.ignoresMouseEvents = true
+        let demo = completionEvents()
+        panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
+        let idle = CompletionEvent(id: "demo-idle", providerID: "codex", sessionID: "sample-idle",
+            project: "design-system", directory: "/projects/sample", sessionName: L10n.text("컴포넌트 정리", "Organize components"),
+            completedAt: Date(), destination: SessionDestination())
+        let child = CompletionEvent(id: "demo-child", providerID: "codex", sessionID: "sample-child",
+            project: "reviewer", directory: "/projects/sample", sessionName: L10n.text("예시 모델", "Example model"),
+            completedAt: Date(), destination: demo[0].destination)
+        panel.showSessions(SessionTree.order([SessionRow(event: demo[0]),
+                            SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true),
+                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false),
+                            SessionRow(event: idle, isOpen: true, needsAttention: false)]), animateNew: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        guard let view = panel.panel.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        if let data = bitmap.representation(using: .png, properties: [:]) {
+            do { try data.write(to: URL(fileURLWithPath: path)); print("Completion preview: \(path)") }
+            catch { fputs("Preview write failed\n", stderr) }
+        }
+        panel.panel.orderOut(nil)
+    }
+
     static func sampleStates() -> [Provider: ProviderState] {
         let now = Date()
         let reset = now.addingTimeInterval(6 * 86400).timeIntervalSince1970

@@ -3,7 +3,7 @@ CACHE = /tmp/aiquota-swift-cache
 SOURCES = $(wildcard Sources/*.swift) $(wildcard Tests/*.swift) main.swift
 ARCH = $(shell uname -m)
 
-.PHONY: build test package check install dmg
+.PHONY: build test package check install
 build: build/AiQuotaBar
 
 build/AiQuotaBar: build/$(ARCH)/AiQuotaBar
@@ -29,6 +29,3 @@ package: test
 
 install: package
 	python3 install.py
-
-dmg: test build/universal/AiQuotaBar
-	python3 dmg.py
