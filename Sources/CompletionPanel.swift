@@ -300,15 +300,29 @@ private final class CompletionHeader: NSStackView {
         pagination.isHidden = isCollapsed || SessionTree.pages(displayedRows, capacity: pageSize).count == 1
         errorLabel.isHidden = isCollapsed || errorLabel.stringValue.isEmpty
         if count > 0 {
-            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / 54)))
+            // Use a stable capacity across pages, even when message lengths differ.
+            let cardWidth = width - Self.windowInset * 2 - 20
+            let tallest = displayedRows.map { row -> CGFloat in
+                let header: CGFloat = row.depth > 0 ? 36 : 48
+                guard let message = row.message else { return header }
+                let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
+                return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14
+            }.max() ?? 48
+            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / (tallest + 6))))
             if capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))
+        func fitMessages() {
+            let cardWidth = width - Self.windowInset * 2 - 20
+            list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.fitMessage(width: cardWidth) }
+        }
+        fitMessages()
         // Measure the actual card layout so there is no clipped content or internal scrolling.
         var height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
         while height > visible.height && pageSize > 1 && count > 0 {
             pageSize -= 1
             renderPage()
+            fitMessages()
             height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
         }
         height = min(height, visible.height)

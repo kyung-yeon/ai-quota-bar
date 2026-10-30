@@ -36,9 +36,15 @@ enum Preview {
         }
         let progress = SessionProgress(steps: steps, totalKnown: true)
         let childProgress = SessionProgress(steps: [ProgressStep(id: "1", title: L10n.text("변경 사항 검토", "Review changes"), status: .inProgress), ProgressStep(id: "2", title: L10n.text("결과 정리", "Summarize findings"), status: .pending)], totalKnown: true)
-        panel.showSessions(SessionTree.order([SessionRow(event: demo[0]),
+        let answer = SessionMessage(L10n.text(
+            "계정 설정 화면에 저장 상태를 추가했습니다.\n입력값 검증과 오류 안내를 정리했습니다.\n키보드 탐색과 화면 크기별 배치를 확인했습니다.\n관련 테스트가 모두 통과했습니다.\n변경 사항을 확인해 주세요.",
+            "Added save status to account settings.\nUpdated validation and error messages.\nChecked keyboard navigation and responsive layout.\nAll related tests passed.\nThe changes are ready for review."), role: .assistant)
+        let working = SessionMessage(L10n.text(
+            "로그인 API의 통합 테스트를 추가해 주세요.\n성공·실패·시간 초과 응답을 포함해 주세요.\n기존 인증 동작은 유지해 주세요.",
+            "Add integration tests for the login API.\nCover success, failure, and timeout responses.\nPreserve the existing authentication behavior."), role: .user)
+        panel.showSessions(SessionTree.order([SessionRow(event: demo[0], message: answer),
                             SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true, progress: childProgress),
-                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false, progress: progress),
+                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false, progress: progress, message: working),
                             SessionRow(event: idle, isOpen: true, needsAttention: false)]), animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         guard let view = panel.panel.contentView else { return }

@@ -17,6 +17,12 @@ struct LiveSession: Codable, Equatable {
     var parentKey: String?
     var childrenKnown: Bool?
     var usesParentDestination: Bool?
+    var message: SessionMessage?
+    var messageCleared: Bool?
+    // Runtime excerpts stay in memory; only the explicitly bounded hook/store path persists them.
+    enum CodingKeys: String, CodingKey {
+        case event, activity, owner, updatedAt, completionToken, parentKey, childrenKnown, usesParentDestination, messageCleared
+    }
     var key: String { event.sessionKey }
 }
 
@@ -38,14 +44,17 @@ struct SessionRow: Equatable, Identifiable {
     var depth = 0
     var opensParent = false
     var progress: SessionProgress?
+    var message: SessionMessage?
     var id: String { event.sessionKey }
 
     /// Keep closed unread sessions, and show an acknowledged open session as idle.
     static func make(state: CompletionState, discovered: [LiveSession], isAlive: (SessionOwner) -> Bool = { $0.isAlive }) -> [SessionRow] {
         var live = (state.sessions ?? [:]).values.filter { $0.owner.map(isAlive) ?? true }
+        for index in live.indices { live[index].message = state.messages?[completionHash(live[index].key)] }
         // The runtime is authoritative about which Orca tabs are currently open.
         let discoveredTargets = Set(discovered.filter { $0.usesParentDestination != true }.compactMap { $0.event.terminalKey })
         live.removeAll { $0.event.terminalKey.map { !discoveredTargets.contains($0) } ?? false }
+        let nativeChildren = live.filter { $0.usesParentDestination == true }
         var parentAliases: [String: String] = [:]
         for var session in discovered where session.usesParentDestination != true {
             // Hooks give the real session ID; the runtime also covers pre-existing sessions.
@@ -53,7 +62,10 @@ struct SessionRow: Equatable, Identifiable {
             let known = live.filter { $0.usesParentDestination != true && $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }
             if let known {
                 session.event = known.event
-                if known.updatedAt > session.updatedAt { session.activity = known.activity }
+                if known.updatedAt > session.updatedAt {
+                    session.activity = known.activity
+                    if known.message != nil || known.messageCleared == true { session.message = known.message }
+                }
             } else if let known = state.events.filter({ !state.isSharedTerminalChild($0) && $0.terminalKey == session.event.terminalKey }).max(by: { $0.completedAt < $1.completedAt }) {
                 session.event = known
             }
@@ -63,6 +75,9 @@ struct SessionRow: Equatable, Identifiable {
         }
         for var child in discovered where child.usesParentDestination == true {
             child.parentKey = child.parentKey.map { parentAliases[$0] ?? $0 }
+            if let known = nativeChildren.first(where: { $0.key == child.key }), known.updatedAt > child.updatedAt {
+                if known.message != nil || known.messageCleared == true { child.message = known.message }
+            }
             live.removeAll { $0.key == child.key }
             live.append(child)
         }
@@ -78,7 +93,7 @@ struct SessionRow: Equatable, Identifiable {
         var rows: [String: SessionRow] = [:]
         for session in live {
             rows[session.key] = SessionRow(event: session.event, activity: session.activity, isOpen: true, needsAttention: false,
-                parentID: session.parentKey, opensParent: session.usesParentDestination == true)
+                parentID: session.parentKey, opensParent: session.usesParentDestination == true, message: session.message)
         }
         let saved = (state.closedSessions ?? [:]).merging(state.sessions ?? [:]) { _, open in open }
         var metadata = Dictionary(saved.values.map { ($0.key, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -113,6 +128,7 @@ struct SessionRow: Equatable, Identifiable {
             }
         }
         for key in Array(rows.keys) {
+            if rows[key]?.message == nil { rows[key]?.message = state.messages?[completionHash(key)] }
             if let progress = state.progress?[completionHash(key)], progress.visible { rows[key]?.progress = progress }
         }
         return SessionTree.order(Array(rows.values))

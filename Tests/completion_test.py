@@ -32,7 +32,7 @@ class CompletionIntegrationTests(unittest.TestCase):
     def completion(self, session, turn):
         return {"hook_event_name": "Stop", "session_id": session,
                 "turn_id": turn, "cwd": "/projects/sample",
-                "last_assistant_message": "secret message never persisted"}
+                "last_assistant_message": "secret message outside excerpt\nline 1\nline 2\nline 3\nline 4\nline 5"}
 
     def test_concurrent_sessions_and_duplicate_delivery(self):
         payloads = [self.completion(f"session-{i}", "turn-1") for i in range(12)] * 2
@@ -43,6 +43,20 @@ class CompletionIntegrationTests(unittest.TestCase):
         raw = (self.directory / "completions.json").read_text()
         self.assertNotIn("secret message", raw)
         self.assertEqual((self.directory / "completions.json").stat().st_mode & 0o777, 0o600)
+
+    def test_recent_message_replaces_prompt_and_keeps_only_tail(self):
+        for provider in ["codex", "claude"]:
+            prompt = {"hook_event_name": "UserPromptSubmit", "session_id": "preview",
+                      "cwd": "/sample", "prompt": "Current request", "turn_id": "current"}
+            self.assertEqual(self.hook(prompt, provider).returncode, 0)
+            self.assertIn("Current request", (self.directory / "completions.json").read_text())
+            self.assertEqual(self.hook(self.completion("preview", "current"), provider).returncode, 0)
+        previews = list(self.state()["messages"].values())
+        self.assertEqual(len(previews), 2)
+        self.assertTrue(all(p["text"] == "line 1\nline 2\nline 3\nline 4\nline 5" for p in previews))
+        self.assertTrue(all(p["role"] == "assistant" for p in previews))
+        self.assertNotIn("secret message", (self.directory / "completions.json").read_text())
+        self.assertNotIn("Current request", (self.directory / "completions.json").read_text())
 
     def test_claude_without_prompt_id_keeps_identical_responses_in_separate_turns(self):
         start = {"hook_event_name": "UserPromptSubmit", "session_id": "claude-session", "cwd": "/project"}

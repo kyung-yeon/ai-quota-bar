@@ -5,6 +5,9 @@ final class CompletionCard: NSView {
     private let completedAt: Date
     let row: SessionRow
     private let spinner = SessionSpinner()
+    private var messageView: SessionMessageView?
+    private var cardHeight: NSLayoutConstraint!
+    private var headerHeight: CGFloat { row.depth > 0 ? 36 : 48 }
     private var indentation: CGFloat { CGFloat(min(row.depth, 5)) * 14 }
     convenience init(event: CompletionEvent, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.init(row: SessionRow(event: event), open: open, acknowledge: acknowledge)
@@ -85,19 +88,33 @@ final class CompletionCard: NSView {
             NSLayoutConstraint.activate([
                 bar.leadingAnchor.constraint(equalTo: details.leadingAnchor),
                 bar.trailingAnchor.constraint(equalTo: details.trailingAnchor),
-                bar.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: row.depth > 0 ? -1 : -3),
+                bar.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight - (row.depth > 0 ? 3 : 5)),
                 bar.heightAnchor.constraint(equalToConstant: 2)
             ])
+        }
+        cardHeight = heightAnchor.constraint(equalToConstant: headerHeight)
+        cardHeight.isActive = true
+        if let message = row.message {
+            let preview = SessionMessageView(message: message)
+            preview.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(preview)
+            messageView = preview
+            NSLayoutConstraint.activate([
+                preview.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
+                preview.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
+                preview.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight + 2),
+                preview.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -8)
+            ])
+            fitMessage(width: 412)
         }
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: leadingAnchor, constant: indentation),
             surface.trailingAnchor.constraint(equalTo: trailingAnchor),
             surface.topAnchor.constraint(equalTo: topAnchor),
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: row.depth > 0 ? 36 : 48),
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
-            stack.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
+            stack.centerYAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight / 2),
             stack.heightAnchor.constraint(equalToConstant: 34),
             icon.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
             details.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
@@ -110,6 +127,10 @@ final class CompletionCard: NSView {
         ])
         updateTime()
         setAccessibilityElement(false)
+    }
+    func fitMessage(width: CGFloat) {
+        guard let messageView else { return }
+        cardHeight.constant = headerHeight + 10 + messageView.fit(width: width - indentation - 20)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func draw(_ dirtyRect: NSRect) {

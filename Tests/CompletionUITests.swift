@@ -338,6 +338,38 @@ import QuartzCore
     progressing.progress = nil
     panel.showSessions([progressing], animateNew: false)
     try expect(descendants(panel.panel.contentView!).allSatisfy { $0.identifier?.rawValue != "session-progress-label" }, "Sessions without a plan retain their ordinary subtitle")
+    let longMessage = SessionMessage(String(repeating: "A long conversation about testing and delivery. ", count: 40) + "FINAL MARKER", role: .assistant)!
+    progressing.message = longMessage
+    progressing.progress = plan
+    panel.showSessions([progressing], animateNew: false)
+    panel.panel.contentView?.layoutSubtreeIfNeeded()
+    let messageCard = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.first!
+    let excerpt = descendants(messageCard).compactMap { $0 as? SessionMessageView }.first!
+    try expect(excerpt.displayedLineCount == 5 && excerpt.displayedText.hasSuffix("FINAL MARKER"), "Long paragraphs show the last five wrapped lines, including the final words")
+    try expect(messageCard.bounds.contains(excerpt.convert(excerpt.bounds, to: messageCard)), "Message preview fits fully inside its expanded card")
+    let messageBar = descendants(messageCard).first { $0.identifier?.rawValue == "session-progress-bar" }!
+    let barRect = messageBar.convert(messageBar.bounds, to: messageCard)
+    let excerptRect = excerpt.convert(excerpt.bounds, to: messageCard)
+    try expect(!barRect.intersects(excerptRect), "Progress remains in the header above the message block")
+    let shortHeight = SessionMessageView(message: SessionMessage("Short response", role: .assistant)!).fit(width: 350)
+    try expect(shortHeight < excerpt.frame.height, "Short messages need less space than five-line excerpts")
+    screens = [NSRect(x: 0, y: 0, width: 800, height: 650)]
+    let previewRows: [SessionRow] = events.enumerated().map { index, event in
+        SessionRow(event: event, message: index % 2 == 0 ? longMessage : nil)
+    }
+    panel.showSessions(previewRows, animateNew: false)
+    var visited = Set<String>()
+    for _ in 0..<20 {
+        panel.panel.contentView?.layoutSubtreeIfNeeded()
+        let pageCards = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }
+        visited.formUnion(pageCards.map { $0.row.id })
+        try expect(screens[0].contains(panel.panel.frame), "Message pages fit the small display")
+        let nextPage = descendants(panel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }!
+        if !nextPage.isEnabled { break }
+        nextPage.performClick(nil)
+    }
+    try expect(visited == Set(previewRows.map(\.id)), "Mixed-height pages expose every session without skipping rows")
+    try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Expanded excerpts do not introduce internal scrolling")
     panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }
