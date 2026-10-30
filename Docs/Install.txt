@@ -1,34 +1,26 @@
-AiQuotaBar — Installation
+AiQuotaBar — Command-line installation
 macOS 13 or later · Apple Silicon and Intel
 
-1. Drag AiQuotaBar.app onto the Applications shortcut.
-2. Eject this disk image.
-3. Open AiQuotaBar from Applications. Its icons appear in the menu bar, not the Dock.
-4. Install and sign in to Codex CLI and/or Claude Code, then choose Refresh now.
+Install Xcode Command Line Tools if needed, and wait for it to finish:
+  xcode-select --install
 
-No Swift compiler, Python, or Node.js is required to install AiQuotaBar itself.
-Each provider's CLI has its own requirements.
+Download and install:
+  git clone https://github.com/kyung-yeon/ai-quota-bar.git
+  cd ai-quota-bar
+  make install
 
-Already using AiQuotaBar?
-Quit the running app first and replace the existing copy in its current folder.
-Source installations normally use ~/Applications. Replace that copy there to
-preserve its existing login item; do not create a second copy in /Applications.
+The command builds, tests, installs, and starts the app. It also configures
+launch at login. A new installation uses ~/Applications/AiQuotaBar.app;
+an existing copy in ~/Applications or /Applications is replaced in place.
+Duplicate copies in these folders and the temporary build bundle are removed.
+No persistent app backups are created.
 
-Open at login (optional)
-Open System Settings > General > Login Items (or Login Items & Extensions),
-and add AiQuotaBar to Open at Login. Drag-and-drop installation does not create
-a login item automatically.
+Its icons appear in the menu bar. Install and sign in to Codex CLI and/or
+Claude Code, then choose Refresh now.
 
-First launch
-This release uses a local ad-hoc signature and is not notarized by Apple.
-If macOS blocks it, first verify that you downloaded it from this project's
-GitHub Releases. If you trust this build, follow Apple's instructions to open it:
-https://support.apple.com/en-us/102445
-System Settings > Privacy & Security > Open Anyway may be available after
-attempting to open the app. Do not disable Gatekeeper globally.
+Update from the source folder:
+  git pull --ff-only
+  make install
 
-Project and updates
-https://github.com/kyung-yeon/ai-quota-bar
-
-To uninstall, quit AiQuotaBar, remove its login item if you added one, and move
-the installed app to the Trash. Your Codex and Claude accounts are unaffected.
+Full setup and uninstall instructions:
+https://github.com/kyung-yeon/ai-quota-bar/blob/main/README.md

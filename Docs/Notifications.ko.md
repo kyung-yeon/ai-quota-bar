@@ -58,7 +58,7 @@ AQB="/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar"
 "$AQB" --install-completion-hooks claude
 ```
 
-소스 설치라면 경로는 `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`입니다. 같은 환경에서 `--remove-completion-hooks codex` 또는 `--remove-completion-hooks claude`로 해제할 수 있습니다. AiQuotaBar 훅만 제거하고 같은 폴더에 `*.aiquotabar-disabled` 표시 파일을 만들어 자동으로 다시 연결되지 않도록 합니다. 명시적으로 설치 명령을 다시 실행하면 자동 연결도 켜집니다. 설치·해제 후에는 새 세션을 시작하세요. 명령은 설정 파일 경로를 출력합니다.
+`make install`이 출력한 설치 경로를 사용하세요. 신규 설치는 `$HOME/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`, 시스템 응용 프로그램 폴더의 기존 앱을 업데이트했다면 `/Applications/AiQuotaBar.app/Contents/MacOS/AiQuotaBar`입니다. 같은 환경에서 `--remove-completion-hooks codex` 또는 `--remove-completion-hooks claude`로 해제할 수 있습니다. AiQuotaBar 훅만 제거하고 같은 폴더에 `*.aiquotabar-disabled` 표시 파일을 만들어 자동으로 다시 연결되지 않도록 합니다. 명시적으로 설치 명령을 다시 실행하면 자동 연결도 켜집니다. 설치·해제 후에는 새 세션을 시작하세요. 명령은 설정 파일 경로를 출력합니다.
 
 관리 앱이 매번 다시 생성하는 설정 파일에는 직접 연결하지 마세요. 해당 앱의 영구 훅 설정에서 위 서비스별 이벤트에 `'<앱 실행 파일의 절대 경로>' --completion-hook codex` 또는 `claude`를 등록해야 합니다. 앱마다 프로필·훅 관리 방식이 다르므로 설치만으로 모든 관리 앱의 완료 감지가 자동 연결되지는 않습니다.
 

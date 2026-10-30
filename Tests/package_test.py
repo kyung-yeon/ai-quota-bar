@@ -35,7 +35,7 @@ class PackageTests(unittest.TestCase):
             self.assertFalse((resources / "codex-path.txt").exists())
             self.assertFalse((resources / "claude-path.txt").exists())
             self.assertEqual((resources / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
-            self.assertTrue((resources / "source/dmg.py").is_file())
+            self.assertTrue((resources / "source/install.py").is_file())
             self.assertTrue((resources / "Assets/screenshots/aiquotabar-preview.png").is_file())
             self.assertTrue((resources / "ko.lproj/InfoPlist.strings").is_file())
             self.assertTrue((resources / "Documentation/Notifications.md").is_file())
