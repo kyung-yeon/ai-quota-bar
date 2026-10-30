@@ -310,6 +310,34 @@ import QuartzCore
     let closeInHeader = descendants(header!).compactMap { $0 as? NSButton }.first!
     let buttonPoint = closeInHeader.convert(NSPoint(x: closeInHeader.bounds.midX, y: closeInHeader.bounds.midY), to: header!.superview)
     try expect(header!.hitTest(buttonPoint) === closeInHeader, "The close button keeps its own hit target")
+    let planSteps: [ProgressStep] = (0..<7).map { index in
+        let title = index == 4 ? L10n.text("설계 검토", "Design review") : "Step \(index + 1)"
+        let status: ProgressStatus = index < 4 ? .completed : index == 4 ? .inProgress : .pending
+        return ProgressStep(id: String(index), title: title, status: status)
+    }
+    let plan = SessionProgress(steps: planSteps, totalKnown: true)
+    var progressing = SessionRow(event: events[0], activity: .running, isOpen: true, needsAttention: false, progress: plan)
+    panel.showSessions([progressing], animateNew: false)
+    panel.panel.contentView?.layoutSubtreeIfNeeded()
+    let progressCard = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.first!
+    let progressLabel = descendants(progressCard).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "session-progress-label" }
+    try expect(progressLabel?.stringValue.contains("5/7") == true, "The active fifth stage appears in the session row")
+    try expect(progressLabel?.toolTip?.contains("Step 7") == true, "The full checklist remains available in the tooltip")
+    let bar = descendants(progressCard).first { $0.identifier?.rawValue == "session-progress-bar" }
+    try expect(bar != nil && bar!.bounds.width > 100 && bar!.bounds.height > 0, "The compact card includes a visible progress strip")
+    try expect(progressCard.frame.height <= 48.1, "Progress never enlarges the compact session card")
+    try expect(progressCard.bounds.contains(bar!.convert(bar!.bounds, to: progressCard)), "The progress strip stays inside its card")
+    progressing.progress?.steps[4].status = .completed
+    progressing.progress?.steps[5].status = .inProgress
+    panel.showSessions([progressing], animateNew: false)
+    let updatedProgress = descendants(panel.panel.contentView!).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "session-progress-label" }
+    try expect(updatedProgress?.stringValue.contains("6/7") == true, "New plan state updates the existing session row")
+    progressing.progress?.totalKnown = false
+    panel.showSessions([progressing], animateNew: false)
+    try expect(descendants(panel.panel.contentView!).allSatisfy { $0.identifier?.rawValue != "session-progress-bar" }, "An incomplete inventory does not draw an overall progress strip")
+    progressing.progress = nil
+    panel.showSessions([progressing], animateNew: false)
+    try expect(descendants(panel.panel.contentView!).allSatisfy { $0.identifier?.rawValue != "session-progress-label" }, "Sessions without a plan retain their ordinary subtitle")
     panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }

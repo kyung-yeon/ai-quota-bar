@@ -27,9 +27,18 @@ enum Preview {
         let child = CompletionEvent(id: "demo-child", providerID: "codex", sessionID: "sample-child",
             project: "reviewer", directory: "/projects/sample", sessionName: L10n.text("예시 모델", "Example model"),
             completedAt: Date(), destination: demo[0].destination)
+        let planTitles = [L10n.text("요구 사항 확인", "Review requirements"), L10n.text("구조 설계", "Design structure"),
+                          L10n.text("구현", "Implementation"), L10n.text("검증", "Validation"),
+                          L10n.text("설계 검토", "Design review"), L10n.text("테스트", "Tests"), L10n.text("마무리", "Finalize")]
+        let steps: [ProgressStep] = planTitles.enumerated().map { index, title in
+            let status: ProgressStatus = index < 4 ? .completed : index == 4 ? .inProgress : .pending
+            return ProgressStep(id: String(index), title: title, status: status)
+        }
+        let progress = SessionProgress(steps: steps, totalKnown: true)
+        let childProgress = SessionProgress(steps: [ProgressStep(id: "1", title: L10n.text("변경 사항 검토", "Review changes"), status: .inProgress), ProgressStep(id: "2", title: L10n.text("결과 정리", "Summarize findings"), status: .pending)], totalKnown: true)
         panel.showSessions(SessionTree.order([SessionRow(event: demo[0]),
-                            SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true),
-                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false),
+                            SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true, progress: childProgress),
+                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false, progress: progress),
                             SessionRow(event: idle, isOpen: true, needsAttention: false)]), animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         guard let view = panel.panel.contentView else { return }

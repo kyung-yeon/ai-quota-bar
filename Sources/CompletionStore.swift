@@ -7,6 +7,7 @@ struct CompletionState: Codable {
     var contexts: [String: CompletionContext]?
     var sessions: [String: LiveSession]?
     var closedSessions: [String: LiveSession]?
+    var progress: [String: SessionProgress]?
     var unread: [CompletionEvent] { events.filter { $0.acknowledgedAt == nil }.sorted { $0.completedAt > $1.completedAt } }
 
     mutating func keepLatestPerSession(at now: Date = Date()) {
@@ -31,6 +32,8 @@ struct CompletionState: Codable {
 struct CompletionContext: Codable {
     var turn: String
     var updatedAt: Date
+    var nativeTurn: String?
+    var nativePrompt: String?
 }
 
 struct CompletionStore {
@@ -61,6 +64,11 @@ struct CompletionStore {
     func receive(_ data: Data, provider: Provider, environment: [String: String]) throws {
         guard data.count <= 1_048_576, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CompletionError.invalidEvent }
         let name = payload["hook_event_name"] as? String ?? ""
+        if name == "PostToolUse" {
+            let destination = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
+            try update { $0.trackProgress(payload, provider: provider, environment: environment, destination: destination) }
+            return
+        }
         if name == "SubagentStart" || name == "SubagentStop" {
             let destination = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
             try update { state in
@@ -110,8 +118,18 @@ struct CompletionStore {
                 if let live = state.sessions?[key] { state.adoptRuntimeCompletions(for: live) }
             }
             if name == "SessionStart" || name == "UserPromptSubmit" {
+                if provider == .claude, name == "SessionStart", payload["source"] as? String == "startup",
+                   environment["CLAUDE_CODE_TASK_LIST_ID"] == nil, state.progress?[key] == nil {
+                    if state.progress == nil { state.progress = [:] }
+                    state.progress?[key] = SessionProgress(totalKnown: true, isCurrent: false)
+                }
                 var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, updatedAt: Date())
-                if name == "UserPromptSubmit" { context.turn = payload["prompt_id"] as? String ?? UUID().uuidString }
+                if name == "UserPromptSubmit" {
+                    context.turn = payload["prompt_id"] as? String ?? UUID().uuidString
+                    context.nativeTurn = payload["turn_id"] as? String
+                    context.nativePrompt = payload["prompt_id"] as? String
+                    state.progress?[key]?.isCurrent = false
+                }
                 context.updatedAt = Date()
                 if state.contexts == nil { state.contexts = [:] }
                 state.contexts?[key] = context
@@ -234,6 +252,7 @@ struct CompletionStore {
         try change(&state)
         state.keepLatestPerSession()
         state.pruneClosedSessions()
+        state.pruneProgress()
         // Never expire unread alerts. Keep acknowledged IDs for 90 days to suppress replays.
         let cutoff = Date().addingTimeInterval(-90 * 86400)
         state.events.removeAll { $0.acknowledgedAt.map { $0 < cutoff } ?? false }

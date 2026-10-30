@@ -50,7 +50,7 @@ if CommandLine.arguments.contains("--help") {
         try store.receive(Data(payload.utf8), provider: .codex, environment: env)
     } catch { fputs("AiQuotaBar: \(error.localizedDescription)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--self-test") {
-    do { try selfTest(); try completionTests(); try sessionTests(); try sessionHierarchyTests(); try navigationTests() } catch { fputs("\(error)\n", stderr); exit(1) }
+    do { try selfTest(); try completionTests(); try sessionTests(); try sessionHierarchyTests(); try progressTests(); try navigationTests() } catch { fputs("\(error)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--check") {
     Task.detached {
         await withTaskGroup(of: (Provider, Result<QuotaSnapshot, ProviderFailure>).self) { group in

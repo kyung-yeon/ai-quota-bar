@@ -37,6 +37,7 @@ struct SessionRow: Equatable, Identifiable {
     var parentID: String?
     var depth = 0
     var opensParent = false
+    var progress: SessionProgress?
     var id: String { event.sessionKey }
 
     /// Keep closed unread sessions, and show an acknowledged open session as idle.
@@ -110,6 +111,9 @@ struct SessionRow: Equatable, Identifiable {
                 }
                 parent = ancestor.parentID
             }
+        }
+        for key in Array(rows.keys) {
+            if let progress = state.progress?[completionHash(key)], progress.visible { rows[key]?.progress = progress }
         }
         return SessionTree.order(Array(rows.values))
     }

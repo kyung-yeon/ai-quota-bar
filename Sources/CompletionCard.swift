@@ -29,7 +29,13 @@ final class CompletionCard: NSView {
         title.setAccessibilityLabel(L10n.text("\(event.project) 세션 열기", "Open \(event.project) session"))
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let session = Self.label(event.sessionName, size: row.depth > 0 ? 10 : 11, color: .secondaryLabelColor)
+        let session = Self.label(row.progress?.summary ?? event.sessionName, size: row.depth > 0 ? 10 : 11, color: .secondaryLabelColor)
+        if let progress = row.progress {
+            session.identifier = NSUserInterfaceItemIdentifier("session-progress-label")
+            session.lineBreakMode = .byTruncatingMiddle
+            session.toolTip = event.sessionName + "\n\n" + progress.detail
+            session.setAccessibilityLabel(progress.summary)
+        }
         session.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let details = NSStackView(views: [title, session])
         details.orientation = .vertical; details.alignment = .leading; details.spacing = 1
@@ -72,6 +78,17 @@ final class CompletionCard: NSView {
         time.setContentHuggingPriority(.required, for: .horizontal)
         stack.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(stack)
+        if let progress = row.progress, progress.totalKnown {
+            let bar = SessionProgressBar(progress: progress)
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(bar)
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: details.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: details.trailingAnchor),
+                bar.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: row.depth > 0 ? -1 : -3),
+                bar.heightAnchor.constraint(equalToConstant: 2)
+            ])
+        }
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: leadingAnchor, constant: indentation),
             surface.trailingAnchor.constraint(equalTo: trailingAnchor),

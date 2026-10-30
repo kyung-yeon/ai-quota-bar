@@ -35,6 +35,20 @@ Orca's canonical `children` list takes precedence over its legacy `subagents` ro
 
 Verified `codex exec --ephemeral` (or `codex e --ephemeral`) invocations are excluded from new session/alert collection unless explicit native child ownership is known. This prevents one-off automation from filling the interactive list. Detection reads only the invocation mode of the current owning process; it never stores arguments. Same-project IDs alone do not establish a parent relationship. Older alerts with unknown provenance remain untouched.
 
+## Session progress
+
+When a session reports a checklist, its subtitle shows the current stage (for example **Design review · Step 5/7**) and a thin strip shows completed (green), active (blue), and pending (gray) steps. Hover over the subtitle for the full checklist and original session name. The cards keep their existing size, including subagent rows. Parallel active tasks show an active count instead of implying one sequential stage.
+
+Progress comes from successful `PostToolUse` events: Codex `update_plan`, or Claude Code `TodoWrite`, `TaskCreate`, `TaskUpdate`, and `TaskList`. It does not read conversation history, estimate completion from elapsed time, or send model requests. A new prompt hides the previous prompt's progress until a fresh checklist update arrives; compaction and app relaunch preserve the current list. Finishing a response never automatically marks remaining steps complete.
+
+A complete plan or `TaskList` snapshot provides the denominator. Claude incremental updates observed after a fresh, unshared session starts also provide a complete inventory. If tracking starts midway, or a shared task list is used, the subtitle says **observed** and omits the overall strip until a full snapshot arrives. Step counts describe the reported checklist, not a percentage of actual work or a time estimate. Lists are bounded to 128 steps and titles to 160 characters.
+
+Install this build, then start or resume a new hook-enabled session. Codex requires reviewing the new `PostToolUse` entry in `/hooks`; AiQuotaBar does not grant that trust. The Codex adapter was checked against CLI 0.165.0 and recognizes its `Plan updated` success response. This response text is version-dependent. Existing Orca sessions without the new hooks can still show activity, but Orca's current session API does not supply a full checklist.
+
+Claude must have task-tracking tools enabled and actually use them. Some newer models do not expose them by default; opt in when starting Claude with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude` if needed. AiQuotaBar does not modify the model or enable these tools itself. Sessions that emit no supported checklist keep their normal subtitle and activity indicator. Claude integration is covered by official-schema fixtures; a live Claude account was not available on the development Mac.
+
+Contracts: [Codex tool hooks](https://learn.chatgpt.com/docs/hooks#tool-coverage), [Claude task tools](https://code.claude.com/docs/en/agent-sdk/typescript#taskcreate-2), [Claude task availability](https://code.claude.com/docs/en/agent-sdk/todo-tracking#model-availability).
+
 ## Automatic connection
 
 1. Install this build of AiQuotaBar in its permanent location and keep it running.
@@ -42,7 +56,7 @@ Verified `codex exec --ephemeral` (or `codex e --ephemeral`) invocations are exc
 3. Start a new agent session. In Codex, open `/hooks` and review and trust the new AiQuotaBar hooks. Automatic registration does not grant Codex's separate hook trust.
 4. Complete a response. The floating card normally appears within about two seconds.
 
-The app adds `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `SubagentStart`, and `SubagentStop` command hooks, plus Codex `Interrupt` or Claude `StopFailure`, to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Checks run at launch, once a minute, and on **Refresh now**. Unchanged settings are not rewritten or backed up again. Missing CLIs are skipped, including configuration creation; installing them later is detected on the next check.
+The app adds `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `SubagentStart`, and `SubagentStop` command hooks, plus Codex `Interrupt` or Claude `StopFailure` and narrowly matched `PostToolUse`, to `~/.codex/hooks.json` or `~/.claude/settings.json`. Existing settings and other tools' hooks are preserved. Changed files receive a sibling `*.aiquotabar-backup-<id>` backup. Checks run at launch, once a minute, and on **Refresh now**. Unchanged settings are not rewritten or backed up again. Missing CLIs are skipped, including configuration creation; installing them later is detected on the next check.
 
 Invalid JSON, symbolic-link configuration files, and globally disabled hooks are left intact. **Check notification connection…** appears in the menu when a connection fails. Automatic connection does not install a CLI or sign into an account.
 
@@ -109,7 +123,7 @@ Before switching to this advanced integration, run `--remove-completion-hooks co
 
 ## Local data and troubleshooting
 
-`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, and local Herdr bindings. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. The latest unread card per provider/session never expires; acknowledged and replaced event IDs are kept for 90 days to prevent replay after restart. All unread cards remain available through page controls; the panel fits its current page without scrolling.
+`~/Library/Application Support/AiQuotaBar/Notifications/` holds completion metadata, destination IDs, local Herdr bindings, and per-session checklist titles, statuses, and replay IDs. Checklist metadata is removed when its closed session has no unread card or retained ancestor context. Task descriptions, plan explanations, and unrelated tool inputs are not retained. Files are user-only; writes are atomic and protected by a process lock. Prompt and assistant text, credentials, and terminal output are not saved. There is no analytics or network collector. The latest unread card per provider/session never expires; acknowledged and replaced event IDs are kept for 90 days to prevent replay after restart. All unread cards remain available through page controls; the panel fits its current page without scrolling.
 
 - **Only some sessions notify:** sessions already running when hooks were installed or trusted may still use their previous hook configuration. After their current work finishes, restart Codex and resume the same conversation with `codex resume`, then review AiQuotaBar in `/hooks`. Installing or restarting AiQuotaBar alone does not refresh those running Codex sessions.
 - **No cards:** check the configuration path, start a new session, review Codex `/hooks`, and ensure hooks are not globally disabled. Test from the same profile used by the agent manager.

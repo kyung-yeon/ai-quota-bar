@@ -136,6 +136,34 @@ int main(void) {
         self.assertEqual(normal.returncode, 0, normal.stderr)
         self.assertEqual(len(self.state()["events"]), 1)
 
+    def test_progress_hook_round_trip_is_session_scoped_and_private(self):
+        def update(session, title):
+            return {"hook_event_name": "PostToolUse", "session_id": session, "cwd": "/sample",
+                    "turn_id": "turn", "tool_name": "update_plan", "tool_use_id": "plan-1",
+                    "tool_input": {"explanation": "private reasoning", "plan": [
+                        {"step": "Analyze", "status": "completed"}, {"step": title, "status": "in_progress"}]},
+                    "tool_response": "Plan updated"}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as workers:
+            results = list(workers.map(self.hook, [update("a", "Build A"), update("b", "Build B")] * 2))
+        self.assertTrue(all(r.returncode == 0 and r.stdout.strip() == "{}" for r in results))
+        state = self.state()
+        self.assertEqual(len(state["progress"]), 2)
+        self.assertEqual({v["steps"][1]["title"] for v in state["progress"].values()}, {"Build A", "Build B"})
+        self.assertEqual(state["events"], [])
+        self.assertNotIn("private reasoning", (self.directory / "completions.json").read_text())
+        self.assertEqual((self.directory / "completions.json").stat().st_mode & 0o777, 0o600)
+
+    def test_progress_registration_preserves_unrelated_tool_hooks(self):
+        file = self.directory / "settings.json"
+        original = {"hooks": {"PostToolUse": [{"matcher": "Write", "hooks": [{"type": "command", "command": "echo unrelated"}]}]}}
+        file.write_text(json.dumps(original))
+        self.assertEqual(self.configure("--install-completion-hooks").returncode, 0)
+        groups = json.loads(file.read_text())["hooks"]["PostToolUse"]
+        self.assertEqual(groups[0], original["hooks"]["PostToolUse"][0])
+        self.assertEqual(groups[1]["matcher"], "^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$")
+        self.assertEqual(self.configure("--remove-completion-hooks").returncode, 0)
+        self.assertEqual(json.loads(file.read_text()), original)
+
     def configure(self, action):
         environment = {**self.env, "CLAUDE_CONFIG_DIR": str(self.directory)}
         return subprocess.run([str(BINARY), action, "claude"], env=environment,

@@ -16,6 +16,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 - Independent **Install required** and **Sign in required** states for each provider.
 - Refresh every five minutes, on wake, or manually with **⌘R**.
 - Persistent floating completion cards for multiple Codex / Claude Code sessions, with animation, session navigation, and individual dismissal.
+- Session checklist progress such as **Design review · Step 5/7**, with a compact strip and full checklist on hover when the provider supplies it. [Progress setup and limitations](Docs/Notifications.md#session-progress).
 - Korean when your Mac's primary preferred language is Korean; English otherwise. Dates follow the selected language and your local time zone. Restart the app after changing the system language.
 
 ## Requirements

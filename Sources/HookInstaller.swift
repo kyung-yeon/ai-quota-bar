@@ -71,7 +71,7 @@ enum HookInstaller {
         if !remove, root["disableAllHooks"] as? Bool == true { throw HookInstallationError.hooksDisabled }
         if let hooks = root["hooks"], !(hooks is [String: Any]) { throw HookInstallationError.invalidConfiguration }
         var hooks = root["hooks"] as? [String: Any] ?? [:]
-        for event in events + [provider == .codex ? "Interrupt" : "StopFailure"] {
+        for event in events + [provider == .codex ? "Interrupt" : "StopFailure", "PostToolUse"] {
             if let value = hooks[event], !(value is [[String: Any]]) { throw HookInstallationError.invalidConfiguration }
             var groups = hooks[event] as? [[String: Any]] ?? []
             let command = "\(SessionNavigator.shellQuote(executable)) \(flag) \(provider.rawValue)"
@@ -89,7 +89,11 @@ enum HookInstaller {
                 var copy = group; copy["hooks"] = kept; return copy
             }
             if !remove && !found {
-                groups.append(["hooks": [["type": "command", "command": command, "timeout": 5]]])
+                var group: [String: Any] = ["hooks": [["type": "command", "command": command, "timeout": 5]]]
+                if event == "PostToolUse" {
+                    group["matcher"] = provider == .codex ? "^update_plan$" : "^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$"
+                }
+                groups.append(group)
             }
             if groups.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = groups }
         }
