@@ -2,6 +2,7 @@ import AppKit
 
 /// Shows the last five rendered lines, including the tail of a long paragraph.
 final class SessionMessageView: NSView {
+    var translucent = false { didSet { needsDisplay = true } }
     private let heading: NSTextField
     private let body: NSTextField
     private let message: SessionMessage
@@ -56,7 +57,7 @@ final class SessionMessageView: NSView {
         return 29 + CGFloat(excerpt.lines) * 14
     }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.withAlphaComponent(0.6).setFill()
+        NSColor.controlBackgroundColor.withAlphaComponent(translucent ? 0.18 : 0.6).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
     }
 }

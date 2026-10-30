@@ -247,13 +247,13 @@ import QuartzCore
     animated.panel.contentView?.layoutSubtreeIfNeeded()
     let treeCards = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }
     let childCard = treeCards.first { $0.row.depth == 1 }!
-    try expect(treeCards.count == 2 && childCard.frame.height == 36,
+    try expect(treeCards.count == 2 && childCard.frame.height == treeCards.first { $0.row.depth == 0 }!.frame.height - 12,
                "Subagents use compact indented rows beneath their parent")
     let childSurface = childCard.subviews.first!
     try expect(childSurface.frame.minX > 0, "Child surfaces leave space for tree connector lines")
     let childOpen = descendants(childCard).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-open" }!
     try expect(childOpen.toolTip == L10n.text("부모 세션 열기", "Open parent session"), "Child navigation explicitly identifies its parent terminal destination")
-    try expect(descendants(animated.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Tree layout retains pagination without internal scrolling")
+    try expect(descendants(animated.panel.contentView!).compactMap { $0 as? NSScrollView }.allSatisfy { $0.identifier?.rawValue == "session-input-scroll" }, "Tree layout retains pagination; only input fields can scroll")
     animated.showSessions([idle, running], animateNew: false)
     animated.remindUnread()
     try expect(animated.activeReminder == nil, "Working and idle rows never trigger the periodic reminder")
@@ -370,6 +370,8 @@ import QuartzCore
     }
     try expect(visited == Set(previewRows.map(\.id)), "Mixed-height pages expose every session without skipping rows")
     try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Expanded excerpts do not introduce internal scrolling")
+    panel.hide()
+    try settingsAndComposerUITests(expect)
     panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }

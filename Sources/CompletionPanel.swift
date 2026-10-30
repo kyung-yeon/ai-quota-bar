@@ -11,12 +11,14 @@ private final class CompletionWindow: NSPanel {
 
 private final class CompletionHeader: NSStackView {
     var onDoubleClick: (() -> Void)?
+    override var acceptsFirstResponder: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
         return hit is NSButton ? hit : self
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         if event.clickCount == 2 { onDoubleClick?() }
         else { window?.performDrag(with: event) }
     }
@@ -25,6 +27,9 @@ private final class CompletionHeader: NSStackView {
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
+    private let effect = NSVisualEffectView()
+    var translucent: Bool { preferences.bool(forKey: "floatingTransparency") }
+    private let reduceTransparency: () -> Bool
     private let list = CompletionList()
     private let stack = NSStackView()
     private let pagination = NSStackView()
@@ -32,6 +37,10 @@ private final class CompletionHeader: NSStackView {
     private let previous = CompletionButton("", symbol: "chevron.left", plain: true, action: {})
     private let next = CompletionButton("", symbol: "chevron.right", plain: true, action: {})
     private var displayedRows: [SessionRow] = []
+    private var pendingRows: [SessionRow]?
+    private var composers: [String: SessionComposer] = [:]
+    var onSend: ((SessionRow, String, @escaping (Result<String, Error>) -> Void) -> Void)?
+    private var editingComposer: SessionComposer? { composers.values.first(where: \.isEditing) }
     private var pageIndex = 0
     private var pageSize = 10
     static let pageSizeOptions = [5, 10, 15, 20]
@@ -60,11 +69,13 @@ private final class CompletionHeader: NSStackView {
 
     init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
          preferences: UserDefaults = .standard,
+         reduceTransparency: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.visibleFrames = visibleFrames
         self.preferences = preferences
         self.isCollapsed = preferences.bool(forKey: "sessionPanelCollapsed")
         self.reduceMotion = reduceMotion
+        self.reduceTransparency = reduceTransparency
         panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
@@ -95,6 +106,7 @@ private final class CompletionHeader: NSStackView {
         close.setAccessibilityLabel(close.toolTip!)
         close.widthAnchor.constraint(equalToConstant: 26).isActive = true
         let header = CompletionHeader(views: [heading, pill, NSView(), close]); header.spacing = 8
+        panel.initialFirstResponder = header
         header.identifier = NSUserInterfaceItemIdentifier("completion-header")
         header.toolTip = L10n.text("두 번 클릭하여 접기 또는 펼치기", "Double-click to collapse or expand")
         header.onDoubleClick = { [weak self] in self?.toggleCollapsed() }
@@ -113,7 +125,20 @@ private final class CompletionHeader: NSStackView {
         [header, list, pagination, errorLabel].forEach { stack.addArrangedSubview($0) }
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow; effect.state = .active
+        effect.translatesAutoresizingMaskIntoConstraints = false
+        effect.wantsLayer = true; effect.layer?.cornerRadius = 14; effect.layer?.masksToBounds = true
+        effect.identifier = NSUserInterfaceItemIdentifier("floating-transparency")
+        chrome.addSubview(effect)
+        NSLayoutConstraint.activate([
+            effect.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
+            effect.trailingAnchor.constraint(equalTo: chrome.trailingAnchor),
+            effect.topAnchor.constraint(equalTo: chrome.topAnchor),
+            effect.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
+        ])
         chrome.addSubview(stack)
+        updateTransparency()
         NSLayoutConstraint.activate([
             chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.windowInset),
             chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.windowInset),
@@ -141,6 +166,7 @@ private final class CompletionHeader: NSStackView {
                     self.stopRowMotion()
                     self.chrome.layer?.removeAnimation(forKey: self.reminderKey)
                 }
+                self.updateTransparency()
                 self.updateActivityMotion()
             }
         })
@@ -170,6 +196,17 @@ private final class CompletionHeader: NSStackView {
     }
 
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
+        if editingComposer != nil {
+            pendingRows = rows
+            for composer in composers.values {
+                if let current = rows.first(where: { $0.id == composer.row.id }) { composer.update(current) }
+                else { var closed = composer.row; closed.isOpen = false; composer.update(closed) }
+            }
+            return
+        }
+        pendingRows = nil
+        let ids = Set(rows.map(\.id))
+        composers = composers.filter { ids.contains($0.key) || !$0.value.draft.isEmpty || $0.value.sending }
         let oldPositions = Dictionary(uniqueKeysWithValues: list.arrangedSubviews.compactMap { view -> (String, NSRect)? in
             guard let card = view as? CompletionCard else { return nil }
             var visible = card.convert(card.bounds, to: panel.contentView)
@@ -217,13 +254,29 @@ private final class CompletionHeader: NSStackView {
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages.count
         for row in pages[pageIndex] {
-            let card = CompletionCard(row: row, open: { [weak self] in self?.onOpen?(row.event) },
+            let composer = composers[row.id] ?? SessionComposer(row: row)
+            composers[row.id] = composer
+            composer.update(row)
+            composer.onSend = { [weak self] row, text, done in
+                guard let send = self?.onSend else { done(.failure(CompletionError.unavailable)); return }
+                send(row, text, done)
+            }
+            composer.onLayoutChanged = { [weak self] in self?.position() }
+            composer.onEditingEnded = { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self, self.panel.isVisible, self.editingComposer == nil, let pending = self.pendingRows else { return }
+                    self.showSessions(pending, animateNew: false)
+                }
+            }
+            let card = CompletionCard(row: row, composer: onSend == nil ? nil : composer, open: { [weak self] in self?.onOpen?(row.event) },
                                       acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
+            card.setTranslucent(translucent && !reduceTransparency())
             addRow(card)
         }
     }
 
     private func changePage(_ offset: Int) {
+        panel.makeFirstResponder(nil)
         pageIndex += offset
         renderPage()
         position()
@@ -249,9 +302,22 @@ private final class CompletionHeader: NSStackView {
     }
 
     func hide() {
+        pendingRows = nil
+        panel.makeFirstResponder(nil)
         stopRowMotion()
         list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(false) }
         panel.orderOut(nil)
+    }
+
+    func setTransparency(_ enabled: Bool) {
+        preferences.set(enabled, forKey: "floatingTransparency")
+        updateTransparency()
+    }
+    private func updateTransparency() {
+        let enabled = translucent && !reduceTransparency()
+        effect.isHidden = !enabled
+        chrome.fillOpacity = enabled ? 0.08 : 1
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTranslucent(enabled) }
     }
 
     func setPageSize(_ value: Int) {
@@ -266,6 +332,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     private func toggleCollapsed() {
+        panel.makeFirstResponder(nil)
         isCollapsed.toggle()
         preferences.set(isCollapsed, forKey: "sessionPanelCollapsed")
         position()
@@ -304,12 +371,13 @@ private final class CompletionHeader: NSStackView {
             let cardWidth = width - Self.windowInset * 2 - 20
             let tallest = displayedRows.map { row -> CGFloat in
                 let header: CGFloat = row.depth > 0 ? 36 : 48
-                guard let message = row.message else { return header }
+                let input: CGFloat = onSend == nil ? 0 : 4 + 84
+                guard let message = row.message else { return header + input + (input > 0 ? 8 : 0) }
                 let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
-                return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14
+                return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14 + input
             }.max() ?? 48
             let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / (tallest + 6))))
-            if capacity != pageSize { pageSize = capacity; renderPage() }
+            if editingComposer == nil, capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))
         func fitMessages() {
@@ -319,7 +387,7 @@ private final class CompletionHeader: NSStackView {
         fitMessages()
         // Measure the actual card layout so there is no clipped content or internal scrolling.
         var height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
-        while height > visible.height && pageSize > 1 && count > 0 {
+        while height > visible.height && pageSize > 1 && count > 0 && editingComposer == nil {
             pageSize -= 1
             renderPage()
             fitMessages()
@@ -337,6 +405,9 @@ private final class CompletionHeader: NSStackView {
         preferences.set(true, forKey: "completionPanelMoved")
         stopRowMotion()
     }
+    func windowDidResignKey(_ notification: Notification) {
+        panel.makeFirstResponder(panel.initialFirstResponder)
+    }
     func windowDidMove(_ notification: Notification) {
         guard !positioning, NSEvent.pressedMouseButtons != 0 else { return }
         preferences.set(true, forKey: "completionPanelMoved")
@@ -349,7 +420,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     func remindUnread() {
-        guard panel.isVisible, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
+        guard editingComposer == nil, panel.isVisible, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
               !list.arrangedSubviews.contains(where: { $0.layer?.animation(forKey: "sessionPromotion") != nil }) else { return }
         // Leave the promotion slide unobstructed and keep tall pages within their
         // transparent margin while reminding only about unacknowledged work.

@@ -262,17 +262,9 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         info.isEnabled = false
         menu.addItem(info)
         _ = action(completions?.isOpen == true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
-        let settings = NSMenuItem(title: L10n.text("플로팅 설정", "Floating panel settings"), action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        for size in CompletionPanel.pageSizeOptions {
-            let option = NSMenuItem(title: L10n.text("페이지당 \(size)개", "\(size) rows per page"), action: #selector(setCompletionPageSize(_:)), keyEquivalent: "")
-            option.target = self; option.tag = size
-            option.state = (completions?.pageSize ?? 10) == size ? .on : .off
-            submenu.addItem(option)
-        }
-        settings.submenu = submenu
-        menu.addItem(settings)
+        menu.addItem(PanelSettingsMenu.make(pageSize: completions?.pageSize ?? 10,
+            translucent: completions?.translucent ?? false, target: self,
+            pageAction: #selector(setCompletionPageSize(_:)), transparencyAction: #selector(toggleTransparency)))
         if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
             _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
         }
@@ -296,6 +288,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
     @objc private func showCompletions() { completions?.toggle() }
     @objc private func setCompletionPageSize(_ item: NSMenuItem) { completions?.setPageSize(item.tag); render() }
+    @objc private func toggleTransparency() { completions?.toggleTransparency(); render() }
     @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

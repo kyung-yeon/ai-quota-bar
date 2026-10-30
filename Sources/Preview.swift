@@ -7,7 +7,7 @@ enum Preview {
         var demo: [CompletionEvent] = []
         for index in projects.indices {
             let provider = index % 2 == 0 ? "codex" : "claude"
-            let destination = SessionDestination(host: index % 2 == 0 ? .cmux : .orca, target: "demo")
+            let destination = SessionDestination(host: .orca, target: "term_demo_\(index)")
             let completedAt = Date().addingTimeInterval(Double(-index * 75))
             demo.append(CompletionEvent(id: "demo-\(index)", providerID: provider, sessionID: "sample-session-\(index)",
                 project: projects[index], directory: "/projects/sample", sessionName: names[index], completedAt: completedAt, destination: destination))
@@ -16,7 +16,12 @@ enum Preview {
     }
 
     @MainActor static func completions(path: String) {
-        let panel = CompletionPanel()
+        let previewPreferences = UserDefaults(suiteName: "AiQuotaBar.Preview")!
+        previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview")
+        defer { previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview") }
+        let panel = CompletionPanel(preferences: previewPreferences)
+        panel.onSend = { _, _, done in done(.success("Preview")) }
+        if CommandLine.arguments.contains("--transparent") { panel.setTransparency(true) }
         panel.panel.alphaValue = 0
         panel.panel.ignoresMouseEvents = true
         let demo = completionEvents()
@@ -42,12 +47,17 @@ enum Preview {
         let working = SessionMessage(L10n.text(
             "로그인 API의 통합 테스트를 추가해 주세요.\n성공·실패·시간 초과 응답을 포함해 주세요.\n기존 인증 동작은 유지해 주세요.",
             "Add integration tests for the login API.\nCover success, failure, and timeout responses.\nPreserve the existing authentication behavior."), role: .user)
-        panel.showSessions(SessionTree.order([SessionRow(event: demo[0], message: answer),
+        panel.showSessions(SessionTree.order([SessionRow(event: demo[0], isOpen: true, message: answer),
                             SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true, progress: childProgress),
                             SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false, progress: progress, message: working),
                             SessionRow(event: idle, isOpen: true, needsAttention: false)]), animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         guard let view = panel.panel.contentView else { return }
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        if let input = descendants(view).compactMap({ $0 as? SessionComposer }).first(where: { $0.row.id == demo[0].sessionKey }) {
+            input.editor.string = L10n.text("다크 모드에서도 확인해 주세요.", "Please also check Dark Mode.")
+            input.textDidChange(Notification(name: NSText.didChangeNotification))
+        }
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: bitmap)

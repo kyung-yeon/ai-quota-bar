@@ -6,7 +6,7 @@ Double-click the header to collapse the list to its title, count, and close butt
 
 Only the latest completion for each provider/session appears. A new completion updates that card and its time; previous event IDs remain stored for replay protection. Existing duplicate cards are collapsed when the app loads them. Dismissing the newest card does not reveal older completions.
 
-The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each card has a compact 48-point header showing a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. **✓ Dismiss** acknowledges the card. The title uses the available row width, and action buttons are square. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. The default is 10 rows per page. Choose 5, 10, 15, or 20 in the menu bar’s **Floating panel settings**; the value persists across relaunches. Fewer rows may fit on a small display, and previous/next buttons expose the rest. Native subagent headers are 36 points tall, indented with connector lines. A continuation page repeats its parent context.
+The inbox is an independent, borderless floating window; it does not send macOS Notification Center banners. Each card has a compact 48-point header showing a provider icon, project, session label, and relative completion time. Hover over the icon for the provider and terminal, or the time for the exact date and time. Clicking the project or **↗ Open session** targets the original session without dismissing its card. **✓ Dismiss** acknowledges the card. The title uses the available row width, and action buttons are square. All icon buttons have tooltips and accessibility labels. The window stays above other app windows and fits its cards without an internal scrollbar. The default is 10 rows per page. Choose 5, 10, 15, or 20 in the menu bar’s **Settings → Floating panel settings → Rows per page**; the value persists across relaunches. Fewer rows may fit on a small display, and previous/next buttons expose the rest. Native subagent headers are 36 points tall, indented with connector lines. A continuation page repeats its parent context.
 
 A new completion slides upward with a 0.6-second ease-in/ease-out animation. While completed responses remain unacknowledged, the panel gives a three-swing reminder every 12 seconds, avoiding overlap with the slide. Rotation is reduced for tall pages so corners remain inside the window. Working and idle sessions alone never trigger a reminder; confirming the last completion or closing the panel stops it immediately. macOS **Reduce motion** disables movement, including animations already running.
 
@@ -14,6 +14,20 @@ A new completion slides upward with a 0.6-second ease-in/ease-out animation. Whi
 <img src="../Assets/screenshots/completions-en.png" alt="Attention, working and idle rows for fictional AI sessions" width="390">
 
 *Rendered from the app using fictional sessions, with no account or conversation data.*
+
+## Appearance and direct input
+
+Enable **Settings → Transparency → Enable transparency** to use a blurred, translucent background. Text, icons, and buttons remain opaque. The default is off, the choice persists across restarts, and macOS **Reduce Transparency** overrides the visual effect without clearing your preference.
+
+### Direct input
+
+Every card includes a small follow-up composer. Currently, direct sending supports **local Orca terminal sessions** running Codex or Claude Code. Click **↑** or press **⌘ Enter** to send up to 8,000 characters; **Enter** inserts a newline. Unfinished IME composition is not submitted. Working sessions allow drafting, but sending waits until the session is idle. Closed, unsupported, unknown-state, remote, and approval-waiting targets cannot receive a prompt. A subagent that only opens its parent's terminal cannot send input to that parent.
+
+Drafts remain in memory across polling, panel closure, and page changes, but are not saved across app restarts. While editing, the list defers reordering and pauses reminder motion; availability still updates. Text fields expand within a bounded height and can scroll internally. The session list remains paginated without scrolling.
+
+A successful delivery clears that draft. If delivery is uncertain, the draft remains and **Send** is locked: open the original session, check whether the text or request arrived, then choose **Checked** to unlock it. There is no automatic retry. “Delivered to session” means Orca accepted the input, not that the AI completed or even started the request. Existing unread completions are not acknowledged by sending.
+
+The implementation uses Orca's authenticated local Unix RPC and guarded, two-stage paste/Enter input. It checks the terminal handle, local host, provider, idle agent status, runtime identity, and unchanged PTY; Orca also checks agent presence and permission state immediately before each write. It never falls back to raw shell input or a frontmost-window keystroke. The current RPC cannot atomically bind delivery to a native AI session ID if an agent is replaced inside the same PTY. This is an internal runtime contract, so incompatible Orca versions disable sending rather than bypassing the guard. Prompts and authentication tokens are not logged by AiQuotaBar; the target agent handles sent requests normally.
 
 ## Open sessions and visibility
 

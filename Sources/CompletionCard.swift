@@ -6,20 +6,23 @@ final class CompletionCard: NSView {
     let row: SessionRow
     private let spinner = SessionSpinner()
     private var messageView: SessionMessageView?
+    private let surface = CompletionSurface(fill: CompletionColors.card, radius: 10)
     private var cardHeight: NSLayoutConstraint!
+    private var composer: SessionComposer?
+    private var composerTop: NSLayoutConstraint?
     private var headerHeight: CGFloat { row.depth > 0 ? 36 : 48 }
     private var indentation: CGFloat { CGFloat(min(row.depth, 5)) * 14 }
     convenience init(event: CompletionEvent, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.init(row: SessionRow(event: event), open: open, acknowledge: acknowledge)
     }
-    init(row: SessionRow, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+    init(row: SessionRow, composer: SessionComposer? = nil, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.row = row
+        self.composer = composer
         let event = row.event
         completedAt = event.completedAt
         super.init(frame: .zero)
         wantsLayer = true
         identifier = NSUserInterfaceItemIdentifier(row.id)
-        let surface = CompletionSurface(fill: CompletionColors.card, radius: 10)
         surface.alphaValue = !row.needsAttention && row.activity != .running ? 0.65 : 1
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
@@ -103,10 +106,22 @@ final class CompletionCard: NSView {
                 preview.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
                 preview.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
                 preview.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight + 2),
-                preview.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -8)
+                preview.heightAnchor.constraint(equalToConstant: preview.fit(width: 372))
             ])
             fitMessage(width: 412)
         }
+        if let composer {
+            composer.removeFromSuperview()
+            composer.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(composer)
+            composerTop = composer.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight + 4)
+            NSLayoutConstraint.activate([
+                composer.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
+                composer.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
+                composerTop!, composer.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -8)
+            ])
+        }
+        fitMessage(width: 412)
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: leadingAnchor, constant: indentation),
             surface.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -128,9 +143,22 @@ final class CompletionCard: NSView {
         updateTime()
         setAccessibilityElement(false)
     }
+    func setTranslucent(_ enabled: Bool) {
+        surface.fillOpacity = enabled ? 0.3 : 1
+        messageView?.translucent = enabled
+    }
     func fitMessage(width: CGFloat) {
-        guard let messageView else { return }
-        cardHeight.constant = headerHeight + 10 + messageView.fit(width: width - indentation - 20)
+        var height = headerHeight
+        if let messageView {
+            let messageHeight = messageView.fit(width: width - indentation - 20)
+            messageView.constraints.first { $0.firstAttribute == .height }?.constant = messageHeight
+            height += 2 + messageHeight
+        }
+        if let composer {
+            composerTop?.constant = height + 4
+            height += 4 + composer.preferredHeight
+        }
+        cardHeight.constant = height + (messageView != nil || composer != nil ? 8 : 0)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func draw(_ dirtyRect: NSRect) {

@@ -62,7 +62,7 @@ To build an app bundle for development without installing, run `make package`. L
 
 ## Connect your accounts
 
-Install either CLI using its official guide above, complete its login flow, then choose **Refresh now** in AiQuotaBar. The app uses the existing CLI account; it does not provide a separate login form or run a model request.
+Install either CLI using its official guide above, complete its login flow, then choose **Refresh now** in AiQuotaBar. The app uses the existing CLI account; quota checks do not require a separate login form or model request.
 
 | Display | Meaning / next step |
 | --- | --- |
@@ -83,13 +83,17 @@ Each card can show the last five visible lines of its latest reported response o
 
 Unread subagents keep their parent tree even after the session exits or the app restarts. Verified one-off `codex exec --ephemeral` automation is excluded from new alerts unless it has explicit native child ownership; existing alerts with unknown provenance are preserved.
 
-Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Floating panel settings** lets you choose 5, 10 (default), 15, or 20 rows per page; the choice is saved. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Settings → Floating panel settings → Rows per page** lets you choose 5, 10 (default), 15, or 20 rows per page; the choice is saved. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+
+Enable **Settings → Transparency → Enable transparency** for a translucent background while keeping text and controls opaque. The choice is saved; macOS **Reduce Transparency** takes precedence.
+
+Each session has a follow-up input. For an idle local Orca agent, click **↑** or press **⌘ Enter** to send; **Enter** adds a line. You can draft while it is working. Drafts survive refreshes and page changes in memory, and sending is disabled for closed or unsupported sessions and subagents that share their parent’s terminal. See [direct input](Docs/Notifications.md#direct-input) for delivery behavior and compatibility.
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
 Double-click the **AI sessions** header to collapse the panel to its title, count, and close button. Double-click again to expand it. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
 
-This is a custom floating window, independent of macOS notification banners. Cards without message previews stay compact at 48 points. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
+This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
 
 Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets display an explanation; open or resume those sessions in their original terminal. Automatic setup preserves existing hooks and backs up changed configuration files. Missing tools are skipped and detected after installation; invalid or disabled hook settings are left intact and shown as a connection issue.
 
