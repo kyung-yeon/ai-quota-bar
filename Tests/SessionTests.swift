@@ -188,10 +188,10 @@ private func processBindingTests(_ expect: (Bool, String) throws -> Void) throws
     var argc: Int32 = 2
     var bytes = withUnsafeBytes(of: &argc) { Data($0) }
     bytes.append(Data("/bin/codex\0\0codex\0PRIVATE_ARG\0SECRET_KEY=PRIVATE\0TERM_PROGRAM=Orca\0ORCA_TERMINAL_HANDLE=term_live\0ORCA_USER_DATA_PATH=/profile with spaces\0SSH_CONNECTION=inherited\0\0".utf8))
-    let env = OrcaProcessBinding.routingEnvironment(bytes)
+    let env = SessionProcessInfo.parse(bytes).routingEnvironment
     try expect(env == ["TERM_PROGRAM": "Orca", "ORCA_TERMINAL_HANDLE": "term_live", "ORCA_USER_DATA_PATH": "/profile with spaces"],
                "Process parsing skips arguments and secrets while preserving routing paths with spaces")
-    try expect(OrcaProcessBinding.routingEnvironment(Data(bytes.prefix(8))).isEmpty,
+    try expect(SessionProcessInfo.parse(Data(bytes.prefix(8))).routingEnvironment.isEmpty,
                "Truncated process metadata cannot produce a binding")
     let owner = SessionOwner(pid: 42, startedAt: "start")
     let localHost = "/profile/Orca Terminal Host.app/Contents/MacOS/orca-terminal-host"

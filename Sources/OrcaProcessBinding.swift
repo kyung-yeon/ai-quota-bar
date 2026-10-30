@@ -6,7 +6,7 @@ import Darwin
 enum OrcaProcessBinding {
     static func destination(for owner: SessionOwner,
                             isAlive: (SessionOwner) -> Bool = { $0.isAlive },
-                            environment: (Int32) -> [String: String] = readEnvironment,
+                            environment: (Int32) -> [String: String] = { SessionProcessInfo.read($0).routingEnvironment },
                             parent: (Int32) -> (pid: Int32, executable: String)? = parentProcess) -> SessionDestination? {
         guard isAlive(owner) else { return nil }
         let env = environment(owner.pid)
@@ -39,41 +39,4 @@ enum OrcaProcessBinding {
         return (parent, String(fields[1]))
     }
 
-    private static func readEnvironment(_ pid: Int32) -> [String: String] {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size = 1_048_576
-        var bytes = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0 else { return [:] }
-        return routingEnvironment(Data(bytes.prefix(size)))
-    }
-
-    // Format: argc, executable, padding, argv, environment. See Apple's ps:
-    // https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/print.c
-    // Skip argv without decoding it, and retain only terminal-routing keys.
-    static func routingEnvironment(_ data: Data) -> [String: String] {
-        guard data.count >= 4, data.count <= 1_048_576 else { return [:] }
-        let argc = data.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
-        guard argc > 0, argc < 65_536 else { return [:] }
-        let bytes = [UInt8](data)
-        var offset = 4
-        func nextString() -> ArraySlice<UInt8>? {
-            guard offset < bytes.count, let end = bytes[offset...].firstIndex(of: 0) else { return nil }
-            defer { offset = end + 1 }
-            return bytes[offset..<end]
-        }
-        guard nextString() != nil else { return [:] }
-        while offset < bytes.count && bytes[offset] == 0 { offset += 1 }
-        for _ in 0..<argc { guard nextString() != nil else { return [:] } }
-        let allowed: Set<String> = ["TERM_PROGRAM", "ORCA_TERMINAL_HANDLE", "ORCA_USER_DATA_PATH", "TMUX", "STY", "HERDR_PANE_ID"]
-        var result: [String: String] = [:]
-        while offset < bytes.count {
-            guard let entry = nextString() else { return [:] }
-            if entry.isEmpty { break }
-            guard let equal = entry.firstIndex(of: 61), equal - entry.startIndex <= 32,
-                  let key = String(bytes: entry[..<equal], encoding: .utf8), allowed.contains(key),
-                  entry.count <= 4096, let value = String(bytes: entry[(equal + 1)...], encoding: .utf8) else { continue }
-            result[key] = value
-        }
-        return result
-    }
 }

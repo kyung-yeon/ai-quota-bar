@@ -5,6 +5,7 @@ import Darwin
 enum SessionCommand {
     static func hookEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "AIQUOTABAR_EPHEMERAL_EXEC")
         var ancestor = getppid()
         for _ in 0..<12 {
             guard ancestor > 1, let data = try? run("/bin/ps", ["-p", String(ancestor), "-o", "ppid=,comm="], timeout: 0.3),
@@ -15,6 +16,10 @@ enum SessionCommand {
                let start = HerdrClientBinding.startTime(ancestor) {
                 environment["AIQUOTABAR_OWNER_PID"] = String(ancestor)
                 environment["AIQUOTABAR_OWNER_START"] = start
+                if URL(fileURLWithPath: String(parts[1])).lastPathComponent.lowercased() == "codex",
+                   SessionProcessInfo.read(ancestor).isEphemeralExec, HerdrClientBinding.startTime(ancestor) == start {
+                    environment["AIQUOTABAR_EPHEMERAL_EXEC"] = "1"
+                }
                 break
             }
             ancestor = parent

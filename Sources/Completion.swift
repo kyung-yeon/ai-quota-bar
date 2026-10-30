@@ -28,6 +28,7 @@ struct CompletionEvent: Codable, Equatable, Identifiable {
     let completedAt: Date
     var destination: SessionDestination
     var acknowledgedAt: Date?
+    var usesParentDestination: Bool?
     var provider: Provider { Provider(rawValue: providerID) ?? .codex }
 
     /// Accept only main-agent response completion, never session exit or child-agent exit.

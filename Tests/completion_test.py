@@ -104,6 +104,38 @@ class CompletionIntegrationTests(unittest.TestCase):
         self.assertEqual(self.hook(self.completion("s", "new-turn")).returncode, 0)
         self.assertEqual(self.state()["events"][0]["destination"]["host"], "unsupported")
 
+    def test_ephemeral_exec_is_detected_from_the_real_parent_process(self):
+        # A tiny local process named codex exercises the OS metadata boundary,
+        # without launching an AI CLI, contacting a service, or touching real alerts.
+        source = self.directory / "parent.c"
+        source.write_text('''#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+int main(void) {
+    pid_t child = fork();
+    if (child == 0) {
+        execl(getenv("TEST_APP"), "AiQuotaBar", "--completion-hook", "codex",
+              "--completion-data-dir", getenv("TEST_STORE"), (char *)0);
+        _exit(127);
+    }
+    int status; if (child < 0 || waitpid(child, &status, 0) < 0) return 1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}''')
+        parent = self.directory / "codex"
+        subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(parent)], check=True, capture_output=True)
+        env = {**self.env, "TEST_APP": str(BINARY), "TEST_STORE": str(self.directory),
+               "AIQUOTABAR_EPHEMERAL_EXEC": "1"}
+        payload = json.dumps(self.completion("automatic", "one"))
+        automatic = subprocess.run([str(parent), "exec", "--ephemeral"], input=payload,
+                                   text=True, capture_output=True, env=env, timeout=8)
+        self.assertEqual(automatic.returncode, 0, automatic.stderr)
+        self.assertEqual(self.state()["events"], [])
+        # The inherited marker cannot suppress a normal session or prompt text.
+        normal = subprocess.run([str(parent), "exec", "--", "--ephemeral"], input=payload,
+                                text=True, capture_output=True, env=env, timeout=8)
+        self.assertEqual(normal.returncode, 0, normal.stderr)
+        self.assertEqual(len(self.state()["events"]), 1)
+
     def configure(self, action):
         environment = {**self.env, "CLAUDE_CONFIG_DIR": str(self.directory)}
         return subprocess.run([str(BINARY), action, "claude"], env=environment,

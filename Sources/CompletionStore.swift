@@ -6,11 +6,13 @@ struct CompletionState: Codable {
     var events: [CompletionEvent] = []
     var contexts: [String: CompletionContext]?
     var sessions: [String: LiveSession]?
+    var closedSessions: [String: LiveSession]?
     var unread: [CompletionEvent] { events.filter { $0.acknowledgedAt == nil }.sorted { $0.completedAt > $1.completedAt } }
 
     mutating func keepLatestPerSession(at now: Date = Date()) {
         var latest: [String: Int] = [:]
         for index in events.indices {
+            if isSharedTerminalChild(events[index]) { events[index].usesParentDestination = true }
             let event = events[index]
             let key = event.providerID + "\u{0}" + event.sessionID
             if let previous = latest[key], events[previous].completedAt > event.completedAt { continue }
@@ -61,7 +63,16 @@ struct CompletionStore {
         let name = payload["hook_event_name"] as? String ?? ""
         if name == "SubagentStart" || name == "SubagentStop" {
             let destination = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
-            try update { try $0.trackSubagent(payload, provider: provider, destination: destination) }
+            try update { state in
+                let parent = payload["session_id"] as? String ?? ""
+                let parentKey = provider.rawValue + "\u{0}" + parent
+                let known = state.sessions?[completionHash(parentKey)]
+                let childID = payload["agent_id"] as? String ?? ""
+                let child = state.sessions?[completionHash(provider.rawValue + "\u{0}" + childID)]
+                if provider == .codex, environment["AIQUOTABAR_EPHEMERAL_EXEC"] == "1",
+                   known?.parentKey == nil, child?.parentKey != parentKey { return }
+                try state.trackSubagent(payload, provider: provider, destination: destination)
+            }
             return
         }
         guard payload["agent_id"] == nil, !name.hasPrefix("Subagent") else { return }
@@ -70,16 +81,20 @@ struct CompletionStore {
         let key = completionHash(provider.rawValue + "\u{0}" + session)
         let captured = HerdrClientBinding.resolve(.capture(environment: environment), directory: directory)
         try update { state in
+            let known = state.sessions?[key] ?? state.closedSessions?[key]
+            if provider == .codex, environment["AIQUOTABAR_EPHEMERAL_EXEC"] == "1", known?.parentKey == nil { return }
             let completion = try CompletionEvent.decode(data, provider: provider, environment: environment, fallbackToken: state.contexts?[key]?.turn)
             if let completion, state.events.contains(where: { $0.id == completion.id }) { return }
             if name == "SessionEnd" { state.endSession(provider.rawValue + "\u{0}" + session); return }
             let lifecycle = ["SessionStart", "UserPromptSubmit", "Stop", "Interrupt", "StopFailure"]
             if lifecycle.contains(name), let cwd = payload["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 {
                 let now = Date()
+                let previous = state.sessions?[key] ?? state.closedSessions?[key]
+                let child = previous?.usesParentDestination == true ? previous : nil
                 let event = CompletionEvent(id: key, providerID: provider.rawValue, sessionID: session,
-                    project: String(URL(fileURLWithPath: cwd).lastPathComponent.prefix(100)), directory: cwd,
-                    sessionName: String((environment["AIQUOTABAR_SESSION_NAME"] ?? payload["session_name"] as? String ?? String(session.prefix(12))).prefix(120)),
-                    completedAt: now, destination: captured)
+                    project: child?.event.project ?? String(URL(fileURLWithPath: cwd).lastPathComponent.prefix(100)), directory: cwd,
+                    sessionName: child?.event.sessionName ?? String((environment["AIQUOTABAR_SESSION_NAME"] ?? payload["session_name"] as? String ?? String(session.prefix(12))).prefix(120)),
+                    completedAt: now, destination: child?.event.destination ?? captured)
                 var owner = state.sessions?[key]?.owner
                 if let pid = environment["AIQUOTABAR_OWNER_PID"].flatMap(Int32.init), let start = environment["AIQUOTABAR_OWNER_START"] {
                     owner = SessionOwner(pid: pid, startedAt: start)
@@ -89,17 +104,10 @@ struct CompletionStore {
                 if name == "SessionStart", payload["source"] as? String == "compact" {
                     activity = state.sessions?[key]?.activity ?? .idle
                 } else { activity = name == "UserPromptSubmit" ? .running : .idle }
-                let parentKey = state.sessions?[key]?.parentKey
-                let usesParent = state.sessions?[key]?.usesParentDestination
+                let parentKey = previous?.parentKey
+                let usesParent = previous?.usesParentDestination
                 state.sessions?[key] = LiveSession(event: event, activity: activity, owner: owner, updatedAt: now, parentKey: parentKey, usesParentDestination: usesParent)
-                // Adopt a runtime-only identity as soon as the native session is known,
-                // including while its previous completion still needs acknowledgement.
-                for index in state.events.indices where state.events[index].sessionID.hasPrefix("orca:") && event.terminalKey != nil && state.events[index].terminalKey == event.terminalKey {
-                    let old = state.events[index]
-                    state.events[index] = CompletionEvent(id: old.id, providerID: old.providerID, sessionID: session,
-                        project: event.project, directory: event.directory, sessionName: event.sessionName,
-                        completedAt: old.completedAt, destination: captured, acknowledgedAt: old.acknowledgedAt)
-                }
+                if let live = state.sessions?[key] { state.adoptRuntimeCompletions(for: live) }
             }
             if name == "SessionStart" || name == "UserPromptSubmit" {
                 var context = state.contexts?[key] ?? CompletionContext(turn: UUID().uuidString, updatedAt: Date())
@@ -109,8 +117,14 @@ struct CompletionStore {
                 state.contexts?[key] = context
             } else if var event = completion {
                 event.destination = captured
+                if let child = state.sessions?[key], child.usesParentDestination == true {
+                    event = CompletionEvent(id: event.id, providerID: event.providerID, sessionID: event.sessionID,
+                        project: child.event.project, directory: event.directory, sessionName: child.event.sessionName,
+                        completedAt: event.completedAt, destination: child.event.destination)
+                    event.usesParentDestination = true
+                }
                 // Prefer the native identity once a previously untracked tab sends hooks.
-                for index in state.events.indices where state.events[index].id.hasPrefix("runtime:") && state.events[index].terminalKey == event.terminalKey && event.terminalKey != nil {
+                for index in state.events.indices where state.sessions?[key]?.usesParentDestination != true && state.events[index].id.hasPrefix("runtime:") && state.events[index].terminalKey == event.terminalKey && event.terminalKey != nil {
                     state.events[index].acknowledgedAt = state.events[index].acknowledgedAt ?? Date()
                 }
                 if !state.events.contains(where: { $0.id == event.id }) { state.events.append(event) }
@@ -174,11 +188,11 @@ struct CompletionStore {
             for session in changed {
                 guard let prior = previous.first(where: { $0.key == session.key }) else { continue }
                 // Prefer a hook already delivered during the observed turn.
-                if state.events.contains(where: { $0.terminalKey == session.event.terminalKey && $0.completedAt >= prior.updatedAt }) { continue }
+                if state.events.contains(where: { !state.isSharedTerminalChild($0) && $0.terminalKey == session.event.terminalKey && $0.completedAt >= prior.updatedAt }) { continue }
                 let id = "runtime:" + completionHash(session.key + "\u{0}" + session.completionToken!)
                 guard !state.events.contains(where: { $0.id == id }) else { continue }
                 let source = state.sessions?.values.filter { $0.usesParentDestination != true && $0.event.terminalKey == session.event.terminalKey }.max { $0.updatedAt < $1.updatedAt }?.event
-                    ?? state.events.filter { $0.terminalKey == session.event.terminalKey }.max { $0.completedAt < $1.completedAt }
+                    ?? state.events.filter { !state.isSharedTerminalChild($0) && $0.terminalKey == session.event.terminalKey }.max { $0.completedAt < $1.completedAt }
                     ?? session.event
                 state.events.append(CompletionEvent(id: id, providerID: source.providerID, sessionID: source.sessionID,
                     project: source.project, directory: source.directory, sessionName: source.sessionName,
@@ -219,6 +233,7 @@ struct CompletionStore {
         var state = try load()
         try change(&state)
         state.keepLatestPerSession()
+        state.pruneClosedSessions()
         // Never expire unread alerts. Keep acknowledged IDs for 90 days to suppress replays.
         let cutoff = Date().addingTimeInterval(-90 * 86400)
         state.events.removeAll { $0.acknowledgedAt.map { $0 < cutoff } ?? false }

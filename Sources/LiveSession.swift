@@ -53,7 +53,7 @@ struct SessionRow: Equatable, Identifiable {
             if let known {
                 session.event = known.event
                 if known.updatedAt > session.updatedAt { session.activity = known.activity }
-            } else if let known = state.events.filter({ $0.terminalKey == session.event.terminalKey }).max(by: { $0.completedAt < $1.completedAt }) {
+            } else if let known = state.events.filter({ !state.isSharedTerminalChild($0) && $0.terminalKey == session.event.terminalKey }).max(by: { $0.completedAt < $1.completedAt }) {
                 session.event = known
             }
             parentAliases[originalKey] = session.key
@@ -79,10 +79,37 @@ struct SessionRow: Equatable, Identifiable {
             rows[session.key] = SessionRow(event: session.event, activity: session.activity, isOpen: true, needsAttention: false,
                 parentID: session.parentKey, opensParent: session.usesParentDestination == true)
         }
+        let saved = (state.closedSessions ?? [:]).merging(state.sessions ?? [:]) { _, open in open }
+        var metadata = Dictionary(saved.values.map { ($0.key, $0) }, uniquingKeysWith: { _, latest in latest })
+        for session in live { metadata[session.key] = session }
         for event in state.unread {
             var row = rows[event.sessionKey] ?? SessionRow(event: event)
             row.event = event; row.needsAttention = true
+            if let session = metadata[event.sessionKey] {
+                row.parentID = session.parentKey.map { parentAliases[$0] ?? $0 }
+                row.opensParent = session.usesParentDestination == true
+            }
             rows[event.sessionKey] = row
+            var parent = row.parentID, seen: Set<String> = [row.id]
+            for _ in 0..<32 {
+                guard let key = parent, seen.insert(key).inserted, let ancestor = metadata[key] else { break }
+                let owner = ancestor.parentKey.map { parentAliases[$0] ?? $0 }
+                if rows[key] == nil {
+                    rows[key] = SessionRow(event: ancestor.event, isOpen: false, needsAttention: false,
+                        parentID: owner, opensParent: ancestor.usesParentDestination == true)
+                }
+                parent = owner
+            }
+        }
+        for key in Array(rows.keys) where rows[key]?.opensParent == true {
+            var parent = rows[key]?.parentID, seen: Set<String> = [key]
+            while let id = parent, seen.insert(id).inserted, let ancestor = rows[id] {
+                if ancestor.event.destination.host != .unsupported {
+                    rows[key]?.event.destination = ancestor.event.destination
+                    break
+                }
+                parent = ancestor.parentID
+            }
         }
         return SessionTree.order(Array(rows.values))
     }

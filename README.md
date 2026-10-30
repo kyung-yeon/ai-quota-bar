@@ -86,6 +86,8 @@ The app searches standard Homebrew paths, `~/.local/bin`, the launch environment
 
 Launch AiQuotaBar to automatically connect installed Codex and Claude Code CLIs; no connection menu or setup dialog is required. Start a new agent session afterward. Codex still requires reviewing and trusting new hooks in `/hooks`. The floating list shows open sessions: idle rows are gray, working rows have an animated indicator, and unread completions move to the top with animation. Each provider/session keeps one row, updated by its newest completion. Dismissing an open session returns it to the idle list. Subagents appear as compact indented rows beneath their parent, with model metadata when available. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
 
+Unread subagents keep their parent tree even after the session exits or the app restarts. Verified one-off `codex exec --ephemeral` automation is excluded from new alerts unless it has explicit native child ownership; existing alerts with unknown provenance are preserved.
+
 Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Floating panel settings** lets you choose 5, 10 (default), 15, or 20 rows per page; the choice is saved. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
