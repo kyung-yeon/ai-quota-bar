@@ -14,7 +14,7 @@ import AppKit
     let groups = menu.submenu!.items
     try expect(menu.title == L10n.text("설정", "Settings") && groups.count == 2, "Settings contains floating and transparency groups")
     let pages = groups[0].submenu!.items[0]
-    try expect(pages.title == L10n.text("페이지 개수", "Rows per page") && pages.submenu!.items.map(\.tag) == [5, 10, 15, 20], "Page-size list is nested below Floating panel settings")
+    try expect(pages.title == L10n.text("페이지 개수", "Rows per page") && pages.submenu!.items.filter { $0.action != nil }.map(\.tag) == [1, 2, 3, 5, 10, 15, 20], "Page-size list includes useful small capacities below Floating panel settings")
     try expect(pages.submenu!.items.filter { $0.state == .on }.map(\.tag) == [15] && groups[1].submenu!.items[0].state == .on, "Selected page size and transparency use checkmarks")
     panel.setTransparency(true)
     let effect = all(panel.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!

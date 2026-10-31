@@ -79,6 +79,8 @@ if CommandLine.arguments.contains("--help") {
     app.setActivationPolicy(.accessory)
     if CommandLine.arguments.contains("--completion-ui-test") {
         do { try completionUITests() } catch { fputs("\(error)\n", stderr); exit(1) }
+    } else if let path = argument(after: "--preview-usage") {
+        Preview.usage(path: path)
     } else if let path = argument(after: "--preview-completions") {
         Preview.completions(path: path)
     } else if CommandLine.arguments.contains("--preview-demo"), let path = argument(after: "--preview") {

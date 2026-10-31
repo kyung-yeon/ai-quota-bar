@@ -124,22 +124,23 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         ?? L10n.text("유효기간 제한 없음", "No expiration")
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var status: NSStatusItem!
     private let menu = NSMenu()
+    private let usagePanel = StatusMenuPanel()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var states = Dictionary(uniqueKeysWithValues: Provider.allCases.map { ($0, ProviderState()) })
-    private var menuOpen = false
-    private var cardItems: [Provider: NSMenuItem] = [:]
-    private var refreshItem: NSMenuItem?
     private var completions: CompletionController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         menu.autoenablesItems = false
-        menu.delegate = self
-        status.menu = menu
+        status.button?.target = self
+        status.button?.action = #selector(toggleUsage)
+        status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        usagePanel.onClose = { [weak self] in self?.status.button?.highlight(false) }
+        usagePanel.onSubmenuClosed = { [weak self] in self?.render() }
         if !CommandLine.arguments.contains("--smoke-test") {
             let completions = CompletionController()
             self.completions = completions
@@ -200,8 +201,14 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) { rebuildMenu(); menuOpen = true }
-    func menuDidClose(_ menu: NSMenu) { menuOpen = false; rebuildMenu() }
+    @objc private func toggleUsage() {
+        guard let button = status.button, let window = button.window, let screen = window.screen else { return }
+        if usagePanel.isVisible { usagePanel.hide(); return }
+        rebuildMenu()
+        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
+        usagePanel.show(menu: menu, anchor: anchor, visibleFrame: screen.visibleFrame)
+        button.highlight(true)
+    }
 
     private func render() {
         let title = NSMutableAttributedString(string: "")
@@ -223,26 +230,19 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         let summary = Provider.allCases.map { "\($0.name): \(states[$0]!.summary(at: now))" }.joined(separator: " · ")
         status.button?.toolTip = "AiQuotaBar · \(summary)"
         status.button?.setAccessibilityLabel("AiQuotaBar · \(summary)")
-        if menuOpen {
-            for provider in Provider.allCases {
-                cardItems[provider]?.view = ProviderCard(provider: provider, state: states[provider]!)
-            }
-            let busy = states.values.contains { $0.fetching }
-            refreshItem?.title = busy ? L10n.text("갱신 중…", "Refreshing…") : L10n.text("지금 새로고침", "Refresh now")
-            refreshItem?.isEnabled = !busy
-            menu.update()
-        } else { rebuildMenu() }
+        if !usagePanel.isTrackingSubmenu {
+            rebuildMenu()
+            if usagePanel.isVisible { usagePanel.reload(menu: menu) }
+        }
     }
 
     private func rebuildMenu() {
         menu.removeAllItems()
-        cardItems.removeAll()
         for provider in Provider.allCases {
             let state = states[provider]!
             let card = NSMenuItem()
             card.view = ProviderCard(provider: provider, state: state)
             menu.addItem(card)
-            cardItems[provider] = card
             if state.failure == .missingCLI || state.failure == .authentication {
                 let title = state.failure == .missingCLI ? L10n.text("\(provider.name) 설치 안내…", "Install \(provider.name)…") : L10n.text("\(provider.name) 로그인 안내…", "Sign in to \(provider.name)…")
                 let item = action(title, #selector(openSetup(_:)))
@@ -271,7 +271,6 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         let busy = states.values.contains { $0.fetching }
         let refresh = action(busy ? L10n.text("갱신 중…", "Refreshing…") : L10n.text("지금 새로고침", "Refresh now"), #selector(refresh as () -> Void), key: "r")
         refresh.isEnabled = !busy
-        refreshItem = refresh
         _ = action(L10n.text("AiQuotaBar 종료", "Quit AiQuotaBar"), #selector(quit), key: "q")
     }
 
@@ -288,7 +287,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     @objc private func allowKeychain() { refresh(.claude, allowKeychainPrompt: true) }
     @objc private func showCompletions() { completions?.toggle() }
     @objc private func setCompletionPageSize(_ item: NSMenuItem) { completions?.setPageSize(item.tag); render() }
-    @objc private func toggleTransparency() { completions?.toggleTransparency(); render() }
+    @objc private func toggleTransparency() { completions?.toggleTransparency(); usagePanel.updateAppearance(); render() }
     @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

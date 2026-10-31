@@ -43,7 +43,7 @@ private final class CompletionHeader: NSStackView {
     private var editingComposer: SessionComposer? { composers.values.first(where: \.isEditing) }
     private var pageIndex = 0
     private var pageSize = 10
-    static let pageSizeOptions = [5, 10, 15, 20]
+    static let pageSizeOptions = [1, 2, 3, 5, 10, 15, 20]
     var preferredPageSize: Int {
         let value = preferences.integer(forKey: "sessionPageSize")
         return Self.pageSizeOptions.contains(value) ? value : 10
@@ -112,6 +112,7 @@ private final class CompletionHeader: NSStackView {
         header.onDoubleClick = { [weak self] in self?.toggleCollapsed() }
         previous.identifier = NSUserInterfaceItemIdentifier("completion-previous-page")
         next.identifier = NSUserInterfaceItemIdentifier("completion-next-page")
+        pageLabel.identifier = NSUserInterfaceItemIdentifier("completion-page-label")
         previous.setAccessibilityLabel(L10n.text("이전 알림", "Previous completions"))
         next.setAccessibilityLabel(L10n.text("다음 알림", "Next completions"))
         previous.perform = { [weak self] in self?.changePage(-1) }
@@ -218,7 +219,7 @@ private final class CompletionHeader: NSStackView {
         })
         count = rows.count
         displayedRows = rows
-        if animateNew { pageIndex = 0 }
+        // New completions still sort first, but never interrupt someone browsing a later page.
         clearList()
         guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
@@ -251,6 +252,10 @@ private final class CompletionHeader: NSStackView {
         pageIndex = min(max(0, pageIndex), pages.count - 1)
         pagination.isHidden = isCollapsed || pages.count == 1
         pageLabel.stringValue = "\(pageIndex + 1) / \(pages.count)"
+        if pageSize < preferredPageSize {
+            pageLabel.stringValue += L10n.text(" · 화면에 맞춰 \(pages[pageIndex].count)개", " · \(pages[pageIndex].count) fit on screen")
+        }
+        pageLabel.toolTip = L10n.text("페이지당 최대 \(preferredPageSize)개 · 스크롤 없이 화면에 맞춥니다.", "Up to \(preferredPageSize) rows per page · fits the screen without scrolling.")
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages.count
         for row in pages[pageIndex] {
@@ -322,9 +327,12 @@ private final class CompletionHeader: NSStackView {
 
     func setPageSize(_ value: Int) {
         guard Self.pageSizeOptions.contains(value) else { return }
+        let latest = pendingRows ?? displayedRows
+        pendingRows = nil
+        panel.makeFirstResponder(panel.initialFirstResponder)
         preferences.set(value, forKey: "sessionPageSize")
         pageIndex = 0
-        if panel.isVisible { showSessions(displayedRows, animateNew: false) }
+        if panel.isVisible { showSessions(latest, animateNew: false) }
     }
 
     private func updateActivityMotion() {
@@ -371,12 +379,14 @@ private final class CompletionHeader: NSStackView {
             let cardWidth = width - Self.windowInset * 2 - 20
             let tallest = displayedRows.map { row -> CGFloat in
                 let header: CGFloat = row.depth > 0 ? 36 : 48
-                let input: CGFloat = onSend == nil ? 0 : 4 + 84
+                let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.preferredHeight ?? 50)
                 guard let message = row.message else { return header + input + (input > 0 ? 8 : 0) }
                 let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
                 return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14 + input
             }.max() ?? 48
-            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120) / (tallest + 6))))
+            // Only one editor has focus. Reserve its expansion once, not on every card.
+            let editorReserve: CGFloat = onSend == nil ? 0 : 34
+            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120 - editorReserve) / (tallest + 6))))
             if editingComposer == nil, capacity != pageSize { pageSize = capacity; renderPage() }
         }
         panel.setContentSize(NSSize(width: width, height: panel.frame.height))

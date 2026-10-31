@@ -15,6 +15,10 @@ import AppKit
             item.tag = size; item.target = target; item.state = pageSize == size ? .on : .off
             pages.submenu?.addItem(item)
         }
+        pages.submenu?.addItem(.separator())
+        let hint = NSMenuItem(title: L10n.text("화면 높이에 맞춰 더 적게 표시될 수 있습니다.", "Fewer rows may fit on your screen."), action: nil, keyEquivalent: "")
+        hint.isEnabled = false
+        pages.submenu?.addItem(hint)
         floating.submenu?.addItem(pages); settings.submenu?.addItem(floating)
         let transparency = group(L10n.text("투명도", "Transparency"))
         let toggle = NSMenuItem(title: L10n.text("투명도 설정", "Enable transparency"), action: transparencyAction, keyEquivalent: "")

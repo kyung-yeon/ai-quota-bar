@@ -372,6 +372,7 @@ import QuartzCore
     try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Expanded excerpts do not introduce internal scrolling")
     panel.hide()
     try settingsAndComposerUITests(expect)
+    try panelControlsUITests(expect)
     panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }

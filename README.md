@@ -83,9 +83,9 @@ Each card can show the last five visible lines of its latest reported response o
 
 Unread subagents keep their parent tree even after the session exits or the app restarts. Verified one-off `codex exec --ephemeral` automation is excluded from new alerts unless it has explicit native child ownership; existing alerts with unknown provenance are preserved.
 
-Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Settings → Floating panel settings → Rows per page** lets you choose 5, 10 (default), 15, or 20 rows per page; the choice is saved. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Settings → Floating panel settings → Rows per page** lets you choose 1, 2, 3, 5, 10 (default), 15, or 20 rows per page; the choice is saved. Tall cards may reduce the actual count, shown in the footer; previous/next controls reach the rest without scrolling. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
 
-Enable **Settings → Transparency → Enable transparency** for a translucent background while keeping text and controls opaque. The choice is saved; macOS **Reduce Transparency** takes precedence.
+Enable **Settings → Transparency → Enable transparency** for translucent backgrounds in both the usage popup and floating session window, while keeping text and controls opaque. The choice is saved; macOS **Reduce Transparency** takes precedence.
 
 Each session has a follow-up input. For an idle local Orca agent, click **↑** or press **⌘ Enter** to send; **Enter** adds a line. You can draft while it is working. Drafts survive refreshes and page changes in memory, and sending is disabled for closed or unsupported sessions and subagents that share their parent’s terminal. See [direct input](Docs/Notifications.md#direct-input) for delivery behavior and compatibility.
 

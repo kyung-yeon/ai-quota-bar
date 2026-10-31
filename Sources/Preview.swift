@@ -68,6 +68,38 @@ enum Preview {
         panel.panel.orderOut(nil)
     }
 
+    @MainActor static func usage(path: String) {
+        let name = "AiQuotaBar.UsagePreview"
+        let preferences = UserDefaults(suiteName: name)!
+        preferences.removePersistentDomain(forName: name)
+        defer { preferences.removePersistentDomain(forName: name) }
+        preferences.set(CommandLine.arguments.contains("--transparent"), forKey: "floatingTransparency")
+        let panel = StatusMenuPanel(preferences: preferences)
+        panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
+        panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
+        let menu = NSMenu()
+        for provider in Provider.allCases {
+            let item = NSMenuItem()
+            item.view = ProviderCard(provider: provider, state: sampleStates()[provider]!)
+            menu.addItem(item); menu.addItem(.separator())
+        }
+        let settings = PanelSettingsMenu.make(pageSize: 10, translucent: preferences.bool(forKey: "floatingTransparency"),
+            target: NSObject(), pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description))
+        menu.addItem(settings)
+        menu.addItem(NSMenuItem(title: L10n.text("지금 새로고침", "Refresh now"), action: #selector(NSObject.description), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: L10n.text("AiQuotaBar 종료", "Quit AiQuotaBar"), action: #selector(NSObject.description), keyEquivalent: "q"))
+        panel.show(menu: menu, anchor: NSRect(x: 600, y: 1084, width: 150, height: 25), visibleFrame: NSRect(x: 0, y: 0, width: 1728, height: 1084))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        if let view = panel.panel.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+                do { try data.write(to: URL(fileURLWithPath: path)); print("Usage preview: \(path)") }
+                catch { fputs("Preview write failed\n", stderr) }
+            }
+        }
+        panel.hide()
+    }
+
     static func sampleStates() -> [Provider: ProviderState] {
         let now = Date()
         let reset = now.addingTimeInterval(6 * 86400).timeIntervalSince1970
