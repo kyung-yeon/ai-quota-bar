@@ -7,7 +7,7 @@ enum Preview {
         var demo: [CompletionEvent] = []
         for index in projects.indices {
             let provider = index % 2 == 0 ? "codex" : "claude"
-            let destination = SessionDestination(host: index % 2 == 0 ? .cmux : .orca, target: "demo")
+            let destination = SessionDestination(host: .orca, target: "term_demo_\(index)")
             let completedAt = Date().addingTimeInterval(Double(-index * 75))
             demo.append(CompletionEvent(id: "demo-\(index)", providerID: provider, sessionID: "sample-session-\(index)",
                 project: projects[index], directory: "/projects/sample", sessionName: names[index], completedAt: completedAt, destination: destination))
@@ -16,7 +16,12 @@ enum Preview {
     }
 
     @MainActor static func completions(path: String) {
-        let panel = CompletionPanel()
+        let previewPreferences = UserDefaults(suiteName: "AiQuotaBar.Preview")!
+        previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview")
+        defer { previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview") }
+        let panel = CompletionPanel(preferences: previewPreferences)
+        panel.onSend = { _, _, done in done(.success("Preview")) }
+        if CommandLine.arguments.contains("--transparent") { panel.setTransparency(true) }
         panel.panel.alphaValue = 0
         panel.panel.ignoresMouseEvents = true
         let demo = completionEvents()
@@ -27,12 +32,32 @@ enum Preview {
         let child = CompletionEvent(id: "demo-child", providerID: "codex", sessionID: "sample-child",
             project: "reviewer", directory: "/projects/sample", sessionName: L10n.text("예시 모델", "Example model"),
             completedAt: Date(), destination: demo[0].destination)
-        panel.showSessions(SessionTree.order([SessionRow(event: demo[0]),
-                            SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true),
-                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false),
+        let planTitles = [L10n.text("요구 사항 확인", "Review requirements"), L10n.text("구조 설계", "Design structure"),
+                          L10n.text("구현", "Implementation"), L10n.text("검증", "Validation"),
+                          L10n.text("설계 검토", "Design review"), L10n.text("테스트", "Tests"), L10n.text("마무리", "Finalize")]
+        let steps: [ProgressStep] = planTitles.enumerated().map { index, title in
+            let status: ProgressStatus = index < 4 ? .completed : index == 4 ? .inProgress : .pending
+            return ProgressStep(id: String(index), title: title, status: status)
+        }
+        let progress = SessionProgress(steps: steps, totalKnown: true)
+        let childProgress = SessionProgress(steps: [ProgressStep(id: "1", title: L10n.text("변경 사항 검토", "Review changes"), status: .inProgress), ProgressStep(id: "2", title: L10n.text("결과 정리", "Summarize findings"), status: .pending)], totalKnown: true)
+        let answer = SessionMessage(L10n.text(
+            "계정 설정 화면에 저장 상태를 추가했습니다.\n입력값 검증과 오류 안내를 정리했습니다.\n키보드 탐색과 화면 크기별 배치를 확인했습니다.\n관련 테스트가 모두 통과했습니다.\n변경 사항을 확인해 주세요.",
+            "Added save status to account settings.\nUpdated validation and error messages.\nChecked keyboard navigation and responsive layout.\nAll related tests passed.\nThe changes are ready for review."), role: .assistant)
+        let working = SessionMessage(L10n.text(
+            "로그인 API의 통합 테스트를 추가해 주세요.\n성공·실패·시간 초과 응답을 포함해 주세요.\n기존 인증 동작은 유지해 주세요.",
+            "Add integration tests for the login API.\nCover success, failure, and timeout responses.\nPreserve the existing authentication behavior."), role: .user)
+        panel.showSessions(SessionTree.order([SessionRow(event: demo[0], isOpen: true, message: answer),
+                            SessionRow(event: child, activity: .running, isOpen: true, needsAttention: false, parentID: demo[0].sessionKey, opensParent: true, progress: childProgress),
+                            SessionRow(event: demo[1], activity: .running, isOpen: true, needsAttention: false, progress: progress, message: working),
                             SessionRow(event: idle, isOpen: true, needsAttention: false)]), animateNew: false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         guard let view = panel.panel.contentView else { return }
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        if let input = descendants(view).compactMap({ $0 as? SessionComposer }).first(where: { $0.row.id == demo[0].sessionKey }) {
+            input.editor.string = L10n.text("다크 모드에서도 확인해 주세요.", "Please also check Dark Mode.")
+            input.textDidChange(Notification(name: NSText.didChangeNotification))
+        }
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -41,6 +66,38 @@ enum Preview {
             catch { fputs("Preview write failed\n", stderr) }
         }
         panel.panel.orderOut(nil)
+    }
+
+    @MainActor static func usage(path: String) {
+        let name = "AiQuotaBar.UsagePreview"
+        let preferences = UserDefaults(suiteName: name)!
+        preferences.removePersistentDomain(forName: name)
+        defer { preferences.removePersistentDomain(forName: name) }
+        preferences.set(CommandLine.arguments.contains("--transparent"), forKey: "floatingTransparency")
+        let panel = StatusMenuPanel(preferences: preferences)
+        panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
+        panel.panel.appearance = NSAppearance(named: CommandLine.arguments.contains("--dark") ? .darkAqua : .aqua)
+        let menu = NSMenu()
+        for provider in Provider.allCases {
+            let item = NSMenuItem()
+            item.view = ProviderCard(provider: provider, state: sampleStates()[provider]!)
+            menu.addItem(item); menu.addItem(.separator())
+        }
+        let settings = PanelSettingsMenu.make(pageSize: 10, translucent: preferences.bool(forKey: "floatingTransparency"),
+            target: NSObject(), pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description))
+        menu.addItem(settings)
+        menu.addItem(NSMenuItem(title: L10n.text("지금 새로고침", "Refresh now"), action: #selector(NSObject.description), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: L10n.text("AiQuotaBar 종료", "Quit AiQuotaBar"), action: #selector(NSObject.description), keyEquivalent: "q"))
+        panel.show(menu: menu, anchor: NSRect(x: 600, y: 1084, width: 150, height: 25), visibleFrame: NSRect(x: 0, y: 0, width: 1728, height: 1084))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        if let view = panel.panel.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) {
+                do { try data.write(to: URL(fileURLWithPath: path)); print("Usage preview: \(path)") }
+                catch { fputs("Preview write failed\n", stderr) }
+            }
+        }
+        panel.hide()
     }
 
     static func sampleStates() -> [Provider: ProviderState] {

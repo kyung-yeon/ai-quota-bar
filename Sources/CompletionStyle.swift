@@ -15,6 +15,7 @@ enum CompletionColors {
 
 final class CompletionSurface: NSView {
     private let fill: NSColor
+    var fillOpacity: CGFloat = 1 { didSet { needsDisplay = true } }
     init(fill: NSColor, radius: CGFloat, border: Bool = true) {
         self.fill = fill
         super.init(frame: .zero)
@@ -27,7 +28,7 @@ final class CompletionSurface: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = fill.cgColor
+            layer?.backgroundColor = fill.withAlphaComponent(fillOpacity).cgColor
             layer?.borderColor = CompletionColors.border.cgColor
         }
     }
@@ -72,7 +73,7 @@ final class CompletionButton: NSButton {
         let color: NSColor = isEnabled ? (foreground ?? (prominent ? .white : .labelColor)) : .tertiaryLabelColor
         if !plain {
             let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
-            (prominent ? CompletionColors.button : CompletionColors.background).setFill()
+            (prominent ? (isEnabled ? CompletionColors.button : CompletionColors.border) : CompletionColors.background).setFill()
             path.fill()
             if !prominent { CompletionColors.border.setStroke(); path.lineWidth = 1; path.stroke() }
         }

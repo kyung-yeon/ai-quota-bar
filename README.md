@@ -16,6 +16,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 - Independent **Install required** and **Sign in required** states for each provider.
 - Refresh every five minutes, on wake, or manually with **⌘R**.
 - Persistent floating completion cards for multiple Codex / Claude Code sessions, with animation, session navigation, and individual dismissal.
+- Session checklist progress such as **Design review · Step 5/7**, with a compact strip and full checklist on hover when the provider supplies it. [Progress setup and limitations](Docs/Notifications.md#session-progress).
 - Korean when your Mac's primary preferred language is Korean; English otherwise. Dates follow the selected language and your local time zone. Restart the app after changing the system language.
 
 ## Requirements
@@ -61,7 +62,7 @@ To build an app bundle for development without installing, run `make package`. L
 
 ## Connect your accounts
 
-Install either CLI using its official guide above, complete its login flow, then choose **Refresh now** in AiQuotaBar. The app uses the existing CLI account; it does not provide a separate login form or run a model request.
+Install either CLI using its official guide above, complete its login flow, then choose **Refresh now** in AiQuotaBar. The app uses the existing CLI account; quota checks do not require a separate login form or model request.
 
 | Display | Meaning / next step |
 | --- | --- |
@@ -78,15 +79,21 @@ The app searches standard Homebrew paths, `~/.local/bin`, the launch environment
 
 Launch AiQuotaBar to automatically connect installed Codex and Claude Code CLIs; no connection menu or setup dialog is required. Start a new agent session afterward. Codex still requires reviewing and trusting new hooks in `/hooks`. The floating list shows open sessions: idle rows are gray, working rows have an animated indicator, and unread completions move to the top with animation. Each provider/session keeps one row, updated by its newest completion. Dismissing an open session returns it to the idle list. Subagents appear as compact indented rows beneath their parent, with model metadata when available. Cards remain until dismissed, survive app restarts, and include project, session, and completion time. Opening a card keeps it unread until you explicitly dismiss it.
 
+Each card can show the last five visible lines of its latest reported response or request beneath the session header and progress. Short messages use less space; longer cards reduce the number of rows on a page to fit the display without scrolling. Local Orca supplies available messages from existing tabs; other environments use connected lifecycle hooks. Missing message data leaves the compact row unchanged. Only a bounded preview is retained locally, not a conversation archive.
+
 Unread subagents keep their parent tree even after the session exits or the app restarts. Verified one-off `codex exec --ephemeral` automation is excluded from new alerts unless it has explicit native child ownership; existing alerts with unknown provenance are preserved.
 
-Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Floating panel settings** lets you choose 5, 10 (default), 15, or 20 rows per page; the choice is saved. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Settings → Floating panel settings → Rows per page** lets you choose 1, 2, 3, 5, 10 (default), 15, or 20 rows per page; the choice is saved. Tall cards may reduce the actual count, shown in the footer; previous/next controls reach the rest without scrolling. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+
+Enable **Settings → Transparency → Enable transparency** for translucent backgrounds in both the usage popup and floating session window, while keeping text and controls opaque. The choice is saved; macOS **Reduce Transparency** takes precedence.
+
+Each session has a follow-up input. For an idle local Orca agent, click **↑** or press **⌘ Enter** to send; **Enter** adds a line. You can draft while it is working. Drafts survive refreshes and page changes in memory, and sending is disabled for closed or unsupported sessions and subagents that share their parent’s terminal. See [direct input](Docs/Notifications.md#direct-input) for delivery behavior and compatibility.
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
 Double-click the **AI sessions** header to collapse the panel to its title, count, and close button. Double-click again to expand it. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
 
-This is a custom floating window with compact 48-point cards, independent of macOS notification banners. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
+This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
 
 Direct navigation is implemented for Terminal, iTerm2, Warp, cmux, Orca, WezTerm, and configured kitty sessions. Herdr needs an attachment wrapper so the correct outer terminal is selected. Unsupported or closed targets display an explanation; open or resume those sessions in their original terminal. Automatic setup preserves existing hooks and backs up changed configuration files. Missing tools are skipped and detected after installation; invalid or disabled hook settings are left intact and shown as a connection issue.
 

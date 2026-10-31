@@ -14,6 +14,7 @@ import AppKit
     private var discovered: [LiveSession] = []
     private var discoveryUnavailable = false
     private let discover: @Sendable () throws -> [LiveSession]
+    private let sendPrompt: @Sendable (SessionRow, String) throws -> String
     private let preferences: UserDefaults
     private(set) var isOpen: Bool
     var onVisibilityChanged: (() -> Void)?
@@ -21,15 +22,19 @@ import AppKit
     var onConnectionChanged: (() -> Void)?
     var unreadCount: Int { events.count }
     var pageSize: Int { panel.preferredPageSize }
+    var translucent: Bool { panel.translucent }
+    func toggleTransparency() { panel.setTransparency(!panel.translucent) }
     func setPageSize(_ value: Int) { panel.setPageSize(value) }
 
     init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,
+         sendPrompt: @escaping @Sendable (SessionRow, String) throws -> String = { try SessionPromptSender.send($0, text: $1) },
          discover: @escaping @Sendable () throws -> [LiveSession] = { try OrcaSessionDiscovery.read() },
          connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
         guard let executable = Bundle.main.executableURL?.path else { return [:] }
         return HookInstaller.connectAvailable(executable: executable)
     }) {
         self.store = store
+        self.sendPrompt = sendPrompt
         self.panel = panel ?? CompletionPanel(preferences: preferences)
         self.connect = connect
         self.discover = discover
@@ -44,6 +49,18 @@ import AppKit
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onClose = { [weak self] in self?.close() }
+        panel.onSend = { [weak self] row, text, done in
+            guard let self, !self.discoveryUnavailable,
+                  let current = self.rows.first(where: { $0.id == row.id }), current.isOpen,
+                  current.activity == .idle, current.event.destination == row.event.destination else {
+                done(.failure(PromptSendError.notReady)); return
+            }
+            let send = self.sendPrompt
+            Task { @MainActor in
+                let result = await Task.detached { Result { try send(current, text) } }.value
+                done(result)
+            }
+        }
     }
 
     func start() {
