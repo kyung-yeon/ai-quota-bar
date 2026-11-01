@@ -84,7 +84,8 @@ enum Preview {
             menu.addItem(item); menu.addItem(.separator())
         }
         let settings = PanelSettingsMenu.make(pageSize: 10, translucent: preferences.bool(forKey: "floatingTransparency"),
-            target: NSObject(), pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description))
+            transparencyPercent: CompletionGlass.percentage(in: preferences), target: NSObject(),
+            pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description), percentageAction: #selector(NSObject.description))
         menu.addItem(settings)
         menu.addItem(NSMenuItem(title: L10n.text("지금 새로고침", "Refresh now"), action: #selector(NSObject.description), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: L10n.text("AiQuotaBar 종료", "Quit AiQuotaBar"), action: #selector(NSObject.description), keyEquivalent: "q"))

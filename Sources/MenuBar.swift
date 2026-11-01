@@ -263,8 +263,9 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         menu.addItem(info)
         _ = action(completions?.isOpen == true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
         menu.addItem(PanelSettingsMenu.make(pageSize: completions?.pageSize ?? 10,
-            translucent: completions?.translucent ?? false, target: self,
-            pageAction: #selector(setCompletionPageSize(_:)), transparencyAction: #selector(toggleTransparency)))
+            translucent: completions?.translucent ?? false, transparencyPercent: completions?.transparencyPercent ?? 70, target: self,
+            pageAction: #selector(setCompletionPageSize(_:)), transparencyAction: #selector(toggleTransparency),
+            percentageAction: #selector(setTransparencyPercent(_:))))
         if completions?.connectionStates.values.contains(where: { $0.hasError }) == true {
             _ = action(L10n.text("완료 알림 연결 확인…", "Check notification connection…"), #selector(showConnectionStatus))
         }
@@ -288,6 +289,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     @objc private func showCompletions() { completions?.toggle() }
     @objc private func setCompletionPageSize(_ item: NSMenuItem) { completions?.setPageSize(item.tag); render() }
     @objc private func toggleTransparency() { completions?.toggleTransparency(); usagePanel.updateAppearance(); render() }
+    @objc private func setTransparencyPercent(_ item: NSMenuItem) { completions?.setTransparencyPercent(item.tag); usagePanel.updateAppearance(); render() }
     @objc private func showConnectionStatus() { completions?.showConnectionStatus() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

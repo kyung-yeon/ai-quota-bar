@@ -25,7 +25,7 @@ private final class StatusMenuButton: NSButton {
 @MainActor final class StatusMenuPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let surface = CompletionSurface(fill: CompletionColors.background, radius: 14)
-    private let effect = NSVisualEffectView()
+    private let effect = CompletionGlass(material: .popover)
     private let scroll = NSScrollView()
     private let content = StatusMenuContent()
     private let preferences: UserDefaults
@@ -55,8 +55,6 @@ private final class StatusMenuButton: NSButton {
         panel.level = .popUpMenu; panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = surface
-        effect.material = .popover; effect.blendingMode = .behindWindow; effect.state = .active
-        effect.wantsLayer = true; effect.layer?.cornerRadius = 14; effect.layer?.masksToBounds = true
         effect.identifier = NSUserInterfaceItemIdentifier("usage-transparency")
         surface.addSubview(effect)
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
@@ -74,8 +72,8 @@ private final class StatusMenuButton: NSButton {
     func updateAppearance() {
         let enabled = preferences.bool(forKey: "floatingTransparency") && !reduceTransparency()
         effect.isHidden = !enabled
-        effect.alphaValue = 0.65
-        surface.fillOpacity = enabled ? 0.12 : 1
+        effect.setTransparency(CompletionGlass.percentage(in: preferences))
+        surface.fillOpacity = enabled ? 0 : 1
     }
 
     func show(menu: NSMenu, anchor: NSRect, visibleFrame: NSRect) {

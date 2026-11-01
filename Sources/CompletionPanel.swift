@@ -27,8 +27,9 @@ private final class CompletionHeader: NSStackView {
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
-    private let effect = NSVisualEffectView()
+    private let effect = CompletionGlass(material: .hudWindow)
     var translucent: Bool { preferences.bool(forKey: "floatingTransparency") }
+    var transparencyPercent: Int { CompletionGlass.percentage(in: preferences) }
     private let reduceTransparency: () -> Bool
     private let list = CompletionList()
     private let stack = NSStackView()
@@ -126,10 +127,7 @@ private final class CompletionHeader: NSStackView {
         [header, list, pagination, errorLabel].forEach { stack.addArrangedSubview($0) }
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow; effect.state = .active
         effect.translatesAutoresizingMaskIntoConstraints = false
-        effect.wantsLayer = true; effect.layer?.cornerRadius = 14; effect.layer?.masksToBounds = true
         effect.identifier = NSUserInterfaceItemIdentifier("floating-transparency")
         chrome.addSubview(effect)
         NSLayoutConstraint.activate([
@@ -318,10 +316,16 @@ private final class CompletionHeader: NSStackView {
         preferences.set(enabled, forKey: "floatingTransparency")
         updateTransparency()
     }
+    func setTransparencyPercent(_ value: Int) {
+        guard CompletionGlass.percentages.contains(value) else { return }
+        preferences.set(value, forKey: "backgroundTransparencyPercent")
+        setTransparency(true)
+    }
     private func updateTransparency() {
         let enabled = translucent && !reduceTransparency()
         effect.isHidden = !enabled
-        chrome.fillOpacity = enabled ? 0.08 : 1
+        effect.setTransparency(transparencyPercent)
+        chrome.fillOpacity = enabled ? 0 : 1
         list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTranslucent(enabled) }
     }
 

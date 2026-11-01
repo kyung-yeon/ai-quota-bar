@@ -23,7 +23,9 @@ import AppKit
     var unreadCount: Int { events.count }
     var pageSize: Int { panel.preferredPageSize }
     var translucent: Bool { panel.translucent }
+    var transparencyPercent: Int { panel.transparencyPercent }
     func toggleTransparency() { panel.setTransparency(!panel.translucent) }
+    func setTransparencyPercent(_ value: Int) { panel.setTransparencyPercent(value) }
     func setPageSize(_ value: Int) { panel.setPageSize(value) }
 
     init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,

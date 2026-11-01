@@ -1,5 +1,10 @@
 import AppKit
 
+@MainActor private final class TransparencyMenuFixture: NSObject {
+    var select: ((Int) -> Void)?
+    @objc func setPercentage(_ item: NSMenuItem) { select?(item.tag) }
+}
+
 @MainActor func settingsAndComposerUITests(_ expect: (Bool, String) throws -> Void) throws {
     func all(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + all($0) } }
     let name = "AiQuotaBar.ComposerTests.\(UUID().uuidString)"
@@ -9,23 +14,55 @@ import AppKit
     let panel = CompletionPanel(visibleFrames: { [NSRect(x: 0, y: 0, width: 1000, height: 900)] }, preferences: preferences, reduceTransparency: { reduce })
     panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
     defer { panel.hide() }
-    let target = NSObject()
-    let menu = PanelSettingsMenu.make(pageSize: 15, translucent: true, target: target, pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description))
+    let target = TransparencyMenuFixture()
+    let menu = PanelSettingsMenu.make(pageSize: 15, translucent: true, transparencyPercent: 70, target: target,
+        pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description), percentageAction: #selector(TransparencyMenuFixture.setPercentage(_:)))
     let groups = menu.submenu!.items
     try expect(menu.title == L10n.text("설정", "Settings") && groups.count == 2, "Settings contains floating and transparency groups")
     let pages = groups[0].submenu!.items[0]
     try expect(pages.title == L10n.text("페이지 개수", "Rows per page") && pages.submenu!.items.filter { $0.action != nil }.map(\.tag) == [1, 2, 3, 5, 10, 15, 20], "Page-size list includes useful small capacities below Floating panel settings")
     try expect(pages.submenu!.items.filter { $0.state == .on }.map(\.tag) == [15] && groups[1].submenu!.items[0].state == .on, "Selected page size and transparency use checkmarks")
+    try expect(groups[1].submenu!.items.filter { $0.tag > 0 }.map(\.tag) == Array(stride(from: 10, through: 100, by: 10)),
+        "Transparency offers every ten-percent level from 10 through 100")
     panel.setTransparency(true)
     let effect = all(panel.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && panel.panel.alphaValue == 0, "Transparency uses background vibrancy without fading the whole window")
+    try expect(effect.alphaValue == 1 && effect.maskImage != nil && effect.layer?.masksToBounds != true,
+        "Floating and usage windows use the same full-strength frosted material behavior")
+    let usage = StatusMenuPanel(preferences: preferences, reduceTransparency: { reduce })
+    let usageEffect = all(usage.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
+    let tints = [effect, usageEffect].map { all($0).first { $0.identifier?.rawValue == "glass-tint" } as! CompletionSurface }
+    try expect(panel.transparencyPercent == 70, "Existing transparency users without a percentage get the default 70 percent")
+    target.select = { panel.setTransparencyPercent($0); usage.updateAppearance() }
+    for item in groups[1].submenu!.items where item.tag > 0 {
+        panel.setTransparency(false)
+        NSApp.sendAction(item.action!, to: item.target, from: item)
+        try expect(panel.translucent && panel.transparencyPercent == item.tag && !usageEffect.isHidden,
+            "Choosing \(item.tag) percent enables and saves the shared transparency setting")
+        try expect(tints.allSatisfy { abs($0.fillOpacity - (1 - CGFloat(item.tag) / 100)) < 0.001 }
+            && [effect, usageEffect].allSatisfy { $0.alphaValue == 1 },
+            "\(item.tag) percent adjusts both window tints without weakening blur or foreground content")
+        let updated = PanelSettingsMenu.make(pageSize: 15, translucent: panel.translucent, transparencyPercent: panel.transparencyPercent,
+            target: target, pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description),
+            percentageAction: #selector(TransparencyMenuFixture.setPercentage(_:)))
+        try expect(updated.submenu!.items[1].submenu!.items.filter { $0.tag > 0 && $0.state == .on }.map(\.tag) == [item.tag],
+            "Reopening the settings marks only the selected percentage")
+    }
+    panel.setTransparencyPercent(40)
+    for invalid in [0, 15, 110] { panel.setTransparencyPercent(invalid) }
+    try expect(panel.transparencyPercent == 40, "Invalid percentage values cannot overwrite the saved choice")
     let restored = CompletionPanel(preferences: preferences)
-    try expect(restored.translucent, "Transparency persists across panel instances")
+    try expect(restored.translucent && restored.transparencyPercent == 40, "Transparency and percentage persist across panel instances")
     reduce = true
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     try expect(effect.isHidden && panel.translucent, "Reduce Transparency overrides the visual effect without losing the preference")
     reduce = false; panel.setTransparency(false)
     try expect(effect.isHidden, "Unchecking transparency restores the opaque surface")
+    panel.setTransparency(true)
+    try expect(!effect.isHidden && panel.transparencyPercent == 40, "Re-enabling transparency restores the previous percentage")
+    preferences.set(17, forKey: "backgroundTransparencyPercent")
+    try expect(panel.transparencyPercent == 70, "An unsupported stored percentage falls back to 70 percent")
+    panel.setTransparency(false)
     let event = CompletionEvent(id: "one", providerID: "codex", sessionID: "one", project: "Sample", directory: "/sample", sessionName: "One", completedAt: Date(), destination: SessionDestination(host: .orca, target: "term_one"))
     var row = SessionRow(event: event, isOpen: true)
     var sent: [(String, String)] = [], complete: ((Result<String, Error>) -> Void)?

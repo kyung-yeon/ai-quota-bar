@@ -7,6 +7,12 @@ import AppKit
 
 @MainActor func panelControlsUITests(_ expect: (Bool, String) throws -> Void) throws {
     func all(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + all($0) } }
+    func tintCoversBackdrop(_ window: NSWindow) -> Bool {
+        window.contentView?.layoutSubtreeIfNeeded()
+        guard let glass = all(window.contentView!).compactMap({ $0 as? CompletionGlass }).first,
+              let tint = glass.subviews.first(where: { $0.identifier?.rawValue == "glass-tint" }) else { return false }
+        return glass.bounds.width > 0 && glass.bounds.height > 0 && tint.frame == glass.bounds
+    }
     let name = "AiQuotaBar.PanelControls.\(UUID().uuidString)"
     let prefs = UserDefaults(suiteName: name)!
     defer { prefs.removePersistentDomain(forName: name) }
@@ -22,12 +28,14 @@ import AppKit
             destination: SessionDestination(host: .orca, target: "term_\(index)")), isOpen: true, message: message)
     }
     panel.showSessions(rows, animateNew: false)
+    try expect(tintCoversBackdrop(panel.panel), "Floating tint covers the full material after initial layout")
     func cards() -> [CompletionCard] { all(panel.panel.contentView!).compactMap { $0 as? CompletionCard } }
     for size in [1, 2, 3] {
         panel.setPageSize(size)
         try expect(cards().count == size, "Small page selections immediately show the selected number even with previews and inputs")
     }
     panel.setPageSize(20)
+    try expect(tintCoversBackdrop(panel.panel), "Floating tint follows window resizing after page-size changes")
     try expect(cards().count >= 4 && screen.contains(panel.panel.frame), "Only one editor's expansion is reserved, so four tall rows fit the reported monitor")
     let footer = all(panel.panel.contentView!).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "completion-page-label" }!
     try expect(footer.stringValue.contains(L10n.text("화면에 맞춰", "fit on screen")), "Footer explains when the display limits the requested page size")
@@ -70,19 +78,14 @@ import AppKit
     try expect(!firstFrame.intersects(secondFrame), "Menu-owned provider views remain separated instead of both resetting to the same origin")
     let effect = all(usage.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     try expect(effect.isHidden, "Quota window is opaque when transparency is off")
-    func backgroundAlpha() -> CGFloat {
-        let view = usage.panel.contentView!
-        view.displayIfNeeded()
-        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        return bitmap.colorAt(x: 8, y: bitmap.pixelsHigh / 2)!.alphaComponent
-    }
-    let opaqueAlpha = backgroundAlpha()
     prefs.set(true, forKey: "floatingTransparency"); usage.updateAppearance()
+    try expect(tintCoversBackdrop(usage.panel), "Usage tint covers the full material after initial layout")
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && usage.panel.alphaValue == 0,
         "The same transparency setting now affects the quota window background without fading its text")
-    let glassAlpha = backgroundAlpha()
-    try expect(opaqueAlpha > 0.95 && glassAlpha < 0.9, "Rendered quota background changes from opaque to translucent when checked")
+    // cacheDisplay does not capture WindowServer's behind-window blur. A low
+    // bitmap alpha would reward the sharp background leak this check prevents.
+    try expect(effect.alphaValue == 1 && effect.maskImage != nil && effect.layer?.masksToBounds != true,
+        "The usage backdrop keeps full-strength blur with an AppKit material mask, without a sharp transparency bypass")
     reduce = true; usage.updateAppearance()
     try expect(effect.isHidden, "Quota window respects Reduce Transparency")
     reduce = false; usage.updateAppearance()
@@ -120,6 +123,7 @@ import AppKit
     usage.show(menu: menu, anchor: anchor, visibleFrame: screen)
     let replacement = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 1800))
     card.view = replacement; usage.reload(menu: menu)
+    try expect(tintCoversBackdrop(usage.panel), "Usage tint follows window resizing after a quota refresh")
     try expect(replacement.window === usage.panel && screen.contains(usage.panel.frame), "Live quota refresh mounts replacement views and keeps long menus on screen")
     let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: usage.panel.windowNumber,
         context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!

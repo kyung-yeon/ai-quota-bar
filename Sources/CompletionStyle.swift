@@ -1,6 +1,41 @@
 import AppKit
 import QuartzCore
 
+final class CompletionGlass: NSVisualEffectView {
+    static let percentages = Array(stride(from: 10, through: 100, by: 10))
+    static func percentage(in preferences: UserDefaults) -> Int {
+        let value = preferences.integer(forKey: "backgroundTransparencyPercent")
+        return percentages.contains(value) ? value : 70
+    }
+    private let tint = CompletionSurface(fill: CompletionColors.background, radius: 14, border: false)
+
+    init(material: NSVisualEffectView.Material) {
+        super.init(frame: .zero)
+        self.material = material
+        blendingMode = .behindWindow
+        state = .active
+        // Keep native blur at full strength; use AppKit's material mask for corners.
+        let radius: CGFloat = 14
+        let mask = NSImage(size: NSSize(width: radius * 2 + 1, height: radius * 2 + 1), flipped: false) { rect in
+            NSColor.white.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        mask.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        mask.resizingMode = .stretch
+        maskImage = mask
+        tint.identifier = NSUserInterfaceItemIdentifier("glass-tint")
+        tint.autoresizingMask = [.width, .height]
+        addSubview(tint)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setTransparency(_ percentage: Int) {
+        // Adjust a tint above the blur, never the effect or whole-window opacity.
+        tint.fillOpacity = 1 - CGFloat(percentage) / 100
+    }
+}
+
 enum CompletionColors {
     static let background = adaptive(light: 0.99, dark: 0.12)
     static let card = adaptive(light: 0.95, dark: 0.17)

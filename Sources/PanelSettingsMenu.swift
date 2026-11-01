@@ -1,7 +1,8 @@
 import AppKit
 
 @MainActor enum PanelSettingsMenu {
-    static func make(pageSize: Int, translucent: Bool, target: AnyObject, pageAction: Selector, transparencyAction: Selector) -> NSMenuItem {
+    static func make(pageSize: Int, translucent: Bool, transparencyPercent: Int, target: AnyObject,
+                     pageAction: Selector, transparencyAction: Selector, percentageAction: Selector) -> NSMenuItem {
         func group(_ title: String) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.submenu = NSMenu(); item.submenu?.autoenablesItems = false
@@ -23,7 +24,19 @@ import AppKit
         let transparency = group(L10n.text("투명도", "Transparency"))
         let toggle = NSMenuItem(title: L10n.text("투명도 설정", "Enable transparency"), action: transparencyAction, keyEquivalent: "")
         toggle.target = target; toggle.state = translucent ? .on : .off
-        transparency.submenu?.addItem(toggle); settings.submenu?.addItem(transparency)
+        transparency.submenu?.addItem(toggle)
+        transparency.submenu?.addItem(.separator())
+        for percent in CompletionGlass.percentages {
+            let item = NSMenuItem(title: "\(percent)%", action: percentageAction, keyEquivalent: "")
+            item.tag = percent; item.target = target
+            item.state = translucent && transparencyPercent == percent ? .on : .off
+            transparency.submenu?.addItem(item)
+        }
+        transparency.submenu?.addItem(.separator())
+        let transparencyHint = NSMenuItem(title: L10n.text("높을수록 배경이 더 비칩니다.", "Higher values show more of the background."), action: nil, keyEquivalent: "")
+        transparencyHint.isEnabled = false
+        transparency.submenu?.addItem(transparencyHint)
+        settings.submenu?.addItem(transparency)
         return settings
     }
 }
