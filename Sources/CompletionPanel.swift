@@ -6,7 +6,37 @@ private final class CompletionList: NSStackView {
 }
 
 private final class CompletionWindow: NSPanel {
+    var onTitlebarDoubleClick: (() -> Void)?
+    private var suppressTitlebarMouseUp = false
     override var canBecomeKey: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseUp, suppressTitlebarMouseUp {
+            suppressTitlebarMouseUp = false
+            return
+        }
+        if event.type == .leftMouseDown {
+            suppressTitlebarMouseUp = false
+            if event.clickCount == 2, event.window === self,
+               isTitlebarBackground(event.locationInWindow), let onTitlebarDoubleClick {
+                // Consume both halves so AppKit cannot also zoom/minimize on release.
+                suppressTitlebarMouseUp = true
+                onTitlebarDoubleClick()
+                return
+            }
+        }
+        super.sendEvent(event)
+    }
+
+    private func isTitlebarBackground(_ point: NSPoint) -> Bool {
+        guard styleMask.contains(.titled), let contentView else { return false }
+        let content = contentView.convert(contentView.bounds, to: nil)
+        guard point.x >= 0, point.x < frame.width, point.y >= content.maxY, point.y < frame.height else { return false }
+        let controls: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        return !controls.compactMap { standardWindowButton($0) }.contains {
+            !$0.isHidden && $0.convert($0.bounds, to: nil).contains(point)
+        }
+    }
 }
 
 private final class CompletionHeader: NSStackView {
@@ -87,9 +117,11 @@ private final class CompletionHeader: NSStackView {
            size.allSatisfy({ $0.isFinite && $0 > 0 && $0 < 100_000 }) {
             userContentSize = NSSize(width: size[0], height: size[1])
         }
-        panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
+        let window = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = window
         super.init()
+        window.onTitlebarDoubleClick = { [weak self] in self?.toggleCollapsed() }
         panel.delegate = self
         panel.title = "AiQuotaBar"
         panel.titleVisibility = .visible

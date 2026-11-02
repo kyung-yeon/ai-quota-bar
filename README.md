@@ -93,7 +93,7 @@ Each session has a follow-up input. For a local Orca agent, including while it i
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
-Double-click the **AI sessions** header to collapse the panel to its title and count, beneath the native window buttons. Double-click again to restore the expanded size. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
+Double-click the native **AiQuotaBar** title bar or the **AI sessions** header to collapse the panel to its title and count, beneath the native window buttons. Double-click again to restore the expanded size. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
 
 This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
 
