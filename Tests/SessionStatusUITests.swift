@@ -50,10 +50,10 @@ import AppKit
         context: nil, eventNumber: 0, clickCount: 2, pressure: 1)!)
     root.layoutSubtreeIfNeeded()
     let labels = all(root).compactMap { $0 as? NSTextField }.filter { $0.identifier?.rawValue.hasPrefix("session-status-") == true }
-    try expect(preferences.bool(forKey: "sessionPanelCollapsed") && labels.count == 2 && labels.allSatisfy {
+    try expect(preferences.bool(forKey: "sessionPanelCollapsed") && labels.count == 3 && labels.allSatisfy {
         !$0.isHiddenOrHasHiddenAncestor && root.bounds.contains($0.convert($0.bounds, to: root))
             && $0.bounds.width >= $0.intrinsicContentSize.width
-    }, "Both status tags stay fully visible in a collapsed minimum-width window")
+    }, "All status tags stay fully visible in a collapsed minimum-width window")
     if let directory = ProcessInfo.processInfo.environment["AIQUOTABAR_STATUS_PREVIEW"] {
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             panel.panel.appearance = NSAppearance(named: appearance)
