@@ -32,7 +32,7 @@ class CompletionIntegrationTests(unittest.TestCase):
     def completion(self, session, turn):
         return {"hook_event_name": "Stop", "session_id": session,
                 "turn_id": turn, "cwd": "/projects/sample",
-                "last_assistant_message": "secret message never persisted"}
+                "last_assistant_message": "secret message outside excerpt\nline 1\nline 2\nline 3\nline 4\nline 5"}
 
     def test_concurrent_sessions_and_duplicate_delivery(self):
         payloads = [self.completion(f"session-{i}", "turn-1") for i in range(12)] * 2
@@ -43,6 +43,20 @@ class CompletionIntegrationTests(unittest.TestCase):
         raw = (self.directory / "completions.json").read_text()
         self.assertNotIn("secret message", raw)
         self.assertEqual((self.directory / "completions.json").stat().st_mode & 0o777, 0o600)
+
+    def test_recent_message_replaces_prompt_and_keeps_only_tail(self):
+        for provider in ["codex", "claude"]:
+            prompt = {"hook_event_name": "UserPromptSubmit", "session_id": "preview",
+                      "cwd": "/sample", "prompt": "Current request", "turn_id": "current"}
+            self.assertEqual(self.hook(prompt, provider).returncode, 0)
+            self.assertIn("Current request", (self.directory / "completions.json").read_text())
+            self.assertEqual(self.hook(self.completion("preview", "current"), provider).returncode, 0)
+        previews = list(self.state()["messages"].values())
+        self.assertEqual(len(previews), 2)
+        self.assertTrue(all(p["text"] == "line 1\nline 2\nline 3\nline 4\nline 5" for p in previews))
+        self.assertTrue(all(p["role"] == "assistant" for p in previews))
+        self.assertNotIn("secret message", (self.directory / "completions.json").read_text())
+        self.assertNotIn("Current request", (self.directory / "completions.json").read_text())
 
     def test_claude_without_prompt_id_keeps_identical_responses_in_separate_turns(self):
         start = {"hook_event_name": "UserPromptSubmit", "session_id": "claude-session", "cwd": "/project"}
@@ -135,6 +149,34 @@ int main(void) {
                                 text=True, capture_output=True, env=env, timeout=8)
         self.assertEqual(normal.returncode, 0, normal.stderr)
         self.assertEqual(len(self.state()["events"]), 1)
+
+    def test_progress_hook_round_trip_is_session_scoped_and_private(self):
+        def update(session, title):
+            return {"hook_event_name": "PostToolUse", "session_id": session, "cwd": "/sample",
+                    "turn_id": "turn", "tool_name": "update_plan", "tool_use_id": "plan-1",
+                    "tool_input": {"explanation": "private reasoning", "plan": [
+                        {"step": "Analyze", "status": "completed"}, {"step": title, "status": "in_progress"}]},
+                    "tool_response": "Plan updated"}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as workers:
+            results = list(workers.map(self.hook, [update("a", "Build A"), update("b", "Build B")] * 2))
+        self.assertTrue(all(r.returncode == 0 and r.stdout.strip() == "{}" for r in results))
+        state = self.state()
+        self.assertEqual(len(state["progress"]), 2)
+        self.assertEqual({v["steps"][1]["title"] for v in state["progress"].values()}, {"Build A", "Build B"})
+        self.assertEqual(state["events"], [])
+        self.assertNotIn("private reasoning", (self.directory / "completions.json").read_text())
+        self.assertEqual((self.directory / "completions.json").stat().st_mode & 0o777, 0o600)
+
+    def test_progress_registration_preserves_unrelated_tool_hooks(self):
+        file = self.directory / "settings.json"
+        original = {"hooks": {"PostToolUse": [{"matcher": "Write", "hooks": [{"type": "command", "command": "echo unrelated"}]}]}}
+        file.write_text(json.dumps(original))
+        self.assertEqual(self.configure("--install-completion-hooks").returncode, 0)
+        groups = json.loads(file.read_text())["hooks"]["PostToolUse"]
+        self.assertEqual(groups[0], original["hooks"]["PostToolUse"][0])
+        self.assertEqual(groups[1]["matcher"], "^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$")
+        self.assertEqual(self.configure("--remove-completion-hooks").returncode, 0)
+        self.assertEqual(json.loads(file.read_text()), original)
 
     def configure(self, action):
         environment = {**self.env, "CLAUDE_CONFIG_DIR": str(self.directory)}

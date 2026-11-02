@@ -247,13 +247,13 @@ import QuartzCore
     animated.panel.contentView?.layoutSubtreeIfNeeded()
     let treeCards = descendants(animated.panel.contentView!).compactMap { $0 as? CompletionCard }
     let childCard = treeCards.first { $0.row.depth == 1 }!
-    try expect(treeCards.count == 2 && childCard.frame.height == 36,
+    try expect(treeCards.count == 2 && childCard.frame.height == treeCards.first { $0.row.depth == 0 }!.frame.height - 12,
                "Subagents use compact indented rows beneath their parent")
     let childSurface = childCard.subviews.first!
     try expect(childSurface.frame.minX > 0, "Child surfaces leave space for tree connector lines")
     let childOpen = descendants(childCard).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-open" }!
     try expect(childOpen.toolTip == L10n.text("부모 세션 열기", "Open parent session"), "Child navigation explicitly identifies its parent terminal destination")
-    try expect(descendants(animated.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Tree layout retains pagination without internal scrolling")
+    try expect(descendants(animated.panel.contentView!).compactMap { $0 as? NSScrollView }.allSatisfy { $0.identifier?.rawValue == "session-input-scroll" }, "Tree layout retains pagination; only input fields can scroll")
     animated.showSessions([idle, running], animateNew: false)
     animated.remindUnread()
     try expect(animated.activeReminder == nil, "Working and idle rows never trigger the periodic reminder")
@@ -310,6 +310,69 @@ import QuartzCore
     let closeInHeader = descendants(header!).compactMap { $0 as? NSButton }.first!
     let buttonPoint = closeInHeader.convert(NSPoint(x: closeInHeader.bounds.midX, y: closeInHeader.bounds.midY), to: header!.superview)
     try expect(header!.hitTest(buttonPoint) === closeInHeader, "The close button keeps its own hit target")
+    let planSteps: [ProgressStep] = (0..<7).map { index in
+        let title = index == 4 ? L10n.text("설계 검토", "Design review") : "Step \(index + 1)"
+        let status: ProgressStatus = index < 4 ? .completed : index == 4 ? .inProgress : .pending
+        return ProgressStep(id: String(index), title: title, status: status)
+    }
+    let plan = SessionProgress(steps: planSteps, totalKnown: true)
+    var progressing = SessionRow(event: events[0], activity: .running, isOpen: true, needsAttention: false, progress: plan)
+    panel.showSessions([progressing], animateNew: false)
+    panel.panel.contentView?.layoutSubtreeIfNeeded()
+    let progressCard = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.first!
+    let progressLabel = descendants(progressCard).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "session-progress-label" }
+    try expect(progressLabel?.stringValue.contains("5/7") == true, "The active fifth stage appears in the session row")
+    try expect(progressLabel?.toolTip?.contains("Step 7") == true, "The full checklist remains available in the tooltip")
+    let bar = descendants(progressCard).first { $0.identifier?.rawValue == "session-progress-bar" }
+    try expect(bar != nil && bar!.bounds.width > 100 && bar!.bounds.height > 0, "The compact card includes a visible progress strip")
+    try expect(progressCard.frame.height <= 48.1, "Progress never enlarges the compact session card")
+    try expect(progressCard.bounds.contains(bar!.convert(bar!.bounds, to: progressCard)), "The progress strip stays inside its card")
+    progressing.progress?.steps[4].status = .completed
+    progressing.progress?.steps[5].status = .inProgress
+    panel.showSessions([progressing], animateNew: false)
+    let updatedProgress = descendants(panel.panel.contentView!).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "session-progress-label" }
+    try expect(updatedProgress?.stringValue.contains("6/7") == true, "New plan state updates the existing session row")
+    progressing.progress?.totalKnown = false
+    panel.showSessions([progressing], animateNew: false)
+    try expect(descendants(panel.panel.contentView!).allSatisfy { $0.identifier?.rawValue != "session-progress-bar" }, "An incomplete inventory does not draw an overall progress strip")
+    progressing.progress = nil
+    panel.showSessions([progressing], animateNew: false)
+    try expect(descendants(panel.panel.contentView!).allSatisfy { $0.identifier?.rawValue != "session-progress-label" }, "Sessions without a plan retain their ordinary subtitle")
+    let longMessage = SessionMessage(String(repeating: "A long conversation about testing and delivery. ", count: 40) + "FINAL MARKER", role: .assistant)!
+    progressing.message = longMessage
+    progressing.progress = plan
+    panel.showSessions([progressing], animateNew: false)
+    panel.panel.contentView?.layoutSubtreeIfNeeded()
+    let messageCard = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.first!
+    let excerpt = descendants(messageCard).compactMap { $0 as? SessionMessageView }.first!
+    try expect(excerpt.displayedLineCount == 5 && excerpt.displayedText.hasSuffix("FINAL MARKER"), "Long paragraphs show the last five wrapped lines, including the final words")
+    try expect(messageCard.bounds.contains(excerpt.convert(excerpt.bounds, to: messageCard)), "Message preview fits fully inside its expanded card")
+    let messageBar = descendants(messageCard).first { $0.identifier?.rawValue == "session-progress-bar" }!
+    let barRect = messageBar.convert(messageBar.bounds, to: messageCard)
+    let excerptRect = excerpt.convert(excerpt.bounds, to: messageCard)
+    try expect(!barRect.intersects(excerptRect), "Progress remains in the header above the message block")
+    let shortHeight = SessionMessageView(message: SessionMessage("Short response", role: .assistant)!).fit(width: 350)
+    try expect(shortHeight < excerpt.frame.height, "Short messages need less space than five-line excerpts")
+    screens = [NSRect(x: 0, y: 0, width: 800, height: 650)]
+    let previewRows: [SessionRow] = events.enumerated().map { index, event in
+        SessionRow(event: event, message: index % 2 == 0 ? longMessage : nil)
+    }
+    panel.showSessions(previewRows, animateNew: false)
+    var visited = Set<String>()
+    for _ in 0..<20 {
+        panel.panel.contentView?.layoutSubtreeIfNeeded()
+        let pageCards = descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }
+        visited.formUnion(pageCards.map { $0.row.id })
+        try expect(screens[0].contains(panel.panel.frame), "Message pages fit the small display")
+        let nextPage = descendants(panel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }!
+        if !nextPage.isEnabled { break }
+        nextPage.performClick(nil)
+    }
+    try expect(visited == Set(previewRows.map(\.id)), "Mixed-height pages expose every session without skipping rows")
+    try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "Expanded excerpts do not introduce internal scrolling")
+    panel.hide()
+    try settingsAndComposerUITests(expect)
+    try panelControlsUITests(expect)
     panel.hide()
     print("PASS: \(checks) completion UI and persistence checks")
 }

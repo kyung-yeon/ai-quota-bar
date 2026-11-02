@@ -1,7 +1,7 @@
 import AppKit
 
-/// Read only the running local runtime. History, transcripts and terminal previews
-/// are not used to infer liveness and are never persisted.
+/// Read only the running local runtime. Transcript history and terminal screen
+/// buffers are not used; runtime message excerpts are bounded before display.
 enum OrcaSessionDiscovery {
     static func read() throws -> [LiveSession] {
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.stablyai.orca").isEmpty else { return [] }
@@ -52,7 +52,7 @@ enum OrcaSessionDiscovery {
             let done = agent["state"] as? String == "done" && agent["interrupted"] as? Bool != true
             let token = done ? (agent["stateStartedAt"] as? NSNumber)?.stringValue : nil
             let parent = LiveSession(event: event, activity: activity, updatedAt: updated, completionToken: token,
-                childrenKnown: agent["children"] != nil || agent["subagents"] != nil)
+                childrenKnown: agent["children"] != nil || agent["subagents"] != nil, message: SessionMessage.runtime(agent))
             sessions.append(parent)
             paneKeys[tab + ":" + leaf] = parent.key
             paneParents[parent.key] = agent["parentPaneKey"] as? String
@@ -94,7 +94,8 @@ enum OrcaSessionDiscovery {
                 project: String(title.prefix(100)), directory: parent.event.directory, sessionName: String(details.prefix(120)),
                 completedAt: parent.updatedAt, destination: parent.event.destination)
             return LiveSession(event: event, activity: activity, updatedAt: parent.updatedAt,
-                parentKey: owner.map { parent.event.providerID + "\u{0}" + $0 } ?? parent.key, usesParentDestination: true)
+                parentKey: owner.map { parent.event.providerID + "\u{0}" + $0 } ?? parent.key, usesParentDestination: true,
+                message: SessionMessage(item["lastMessage"] as? String, role: .assistant) ?? SessionMessage.runtime(item))
         }
     }
 }

@@ -5,18 +5,24 @@ final class CompletionCard: NSView {
     private let completedAt: Date
     let row: SessionRow
     private let spinner = SessionSpinner()
+    private var messageView: SessionMessageView?
+    private let surface = CompletionSurface(fill: CompletionColors.card, radius: 10)
+    private var cardHeight: NSLayoutConstraint!
+    private var composer: SessionComposer?
+    private var composerTop: NSLayoutConstraint?
+    private var headerHeight: CGFloat { row.depth > 0 ? 36 : 48 }
     private var indentation: CGFloat { CGFloat(min(row.depth, 5)) * 14 }
     convenience init(event: CompletionEvent, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.init(row: SessionRow(event: event), open: open, acknowledge: acknowledge)
     }
-    init(row: SessionRow, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
+    init(row: SessionRow, composer: SessionComposer? = nil, open: @escaping () -> Void, acknowledge: @escaping () -> Void) {
         self.row = row
+        self.composer = composer
         let event = row.event
         completedAt = event.completedAt
         super.init(frame: .zero)
         wantsLayer = true
         identifier = NSUserInterfaceItemIdentifier(row.id)
-        let surface = CompletionSurface(fill: CompletionColors.card, radius: 10)
         surface.alphaValue = !row.needsAttention && row.activity != .running ? 0.65 : 1
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
@@ -29,7 +35,13 @@ final class CompletionCard: NSView {
         title.setAccessibilityLabel(L10n.text("\(event.project) 세션 열기", "Open \(event.project) session"))
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let session = Self.label(event.sessionName, size: row.depth > 0 ? 10 : 11, color: .secondaryLabelColor)
+        let session = Self.label(row.progress?.summary ?? event.sessionName, size: row.depth > 0 ? 10 : 11, color: .secondaryLabelColor)
+        if let progress = row.progress {
+            session.identifier = NSUserInterfaceItemIdentifier("session-progress-label")
+            session.lineBreakMode = .byTruncatingMiddle
+            session.toolTip = event.sessionName + "\n\n" + progress.detail
+            session.setAccessibilityLabel(progress.summary)
+        }
         session.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let details = NSStackView(views: [title, session])
         details.orientation = .vertical; details.alignment = .leading; details.spacing = 1
@@ -72,15 +84,52 @@ final class CompletionCard: NSView {
         time.setContentHuggingPriority(.required, for: .horizontal)
         stack.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(stack)
+        if let progress = row.progress, progress.totalKnown {
+            let bar = SessionProgressBar(progress: progress)
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(bar)
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: details.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: details.trailingAnchor),
+                bar.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight - (row.depth > 0 ? 3 : 5)),
+                bar.heightAnchor.constraint(equalToConstant: 2)
+            ])
+        }
+        cardHeight = heightAnchor.constraint(equalToConstant: headerHeight)
+        cardHeight.isActive = true
+        if let message = row.message {
+            let preview = SessionMessageView(message: message)
+            preview.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(preview)
+            messageView = preview
+            NSLayoutConstraint.activate([
+                preview.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
+                preview.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
+                preview.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight + 2),
+                preview.heightAnchor.constraint(equalToConstant: preview.fit(width: 372))
+            ])
+            fitMessage(width: 412)
+        }
+        if let composer {
+            composer.removeFromSuperview()
+            composer.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(composer)
+            composerTop = composer.topAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight + 4)
+            NSLayoutConstraint.activate([
+                composer.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
+                composer.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
+                composerTop!, composer.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -8)
+            ])
+        }
+        fitMessage(width: 412)
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: leadingAnchor, constant: indentation),
             surface.trailingAnchor.constraint(equalTo: trailingAnchor),
             surface.topAnchor.constraint(equalTo: topAnchor),
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: row.depth > 0 ? 36 : 48),
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -10),
-            stack.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
+            stack.centerYAnchor.constraint(equalTo: surface.topAnchor, constant: headerHeight / 2),
             stack.heightAnchor.constraint(equalToConstant: 34),
             icon.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
             details.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
@@ -93,6 +142,23 @@ final class CompletionCard: NSView {
         ])
         updateTime()
         setAccessibilityElement(false)
+    }
+    func setTranslucent(_ enabled: Bool) {
+        surface.fillOpacity = enabled ? 0.3 : 1
+        messageView?.translucent = enabled
+    }
+    func fitMessage(width: CGFloat) {
+        var height = headerHeight
+        if let messageView {
+            let messageHeight = messageView.fit(width: width - indentation - 20)
+            messageView.constraints.first { $0.firstAttribute == .height }?.constant = messageHeight
+            height += 2 + messageHeight
+        }
+        if let composer {
+            composerTop?.constant = height + 4
+            height += 4 + composer.preferredHeight
+        }
+        cardHeight.constant = height + (messageView != nil || composer != nil ? 8 : 0)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func draw(_ dirtyRect: NSRect) {

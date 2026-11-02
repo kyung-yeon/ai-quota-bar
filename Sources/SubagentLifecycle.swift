@@ -30,7 +30,7 @@ extension CompletionState {
             completedAt: now, destination: destination.host == .unsupported ? (previous?.event.destination ?? destination) : destination)
         let owner = sessions?[parentHash]?.owner
         sessions?[childKey] = LiveSession(event: event, activity: start ? .running : .idle,
-            owner: owner, updatedAt: now, parentKey: parentKey, usesParentDestination: true)
+            owner: owner, updatedAt: now, parentKey: parentKey, usesParentDestination: true, messageCleared: previous?.messageCleared)
     }
 
     func isSharedTerminalChild(_ event: CompletionEvent) -> Bool {
@@ -43,6 +43,7 @@ extension CompletionState {
         guard session.usesParentDestination != true, let terminal = session.event.terminalKey else { return }
         for index in events.indices where events[index].sessionID.hasPrefix("orca:") && events[index].terminalKey == terminal {
             let old = events[index], event = session.event
+            adoptMessage(from: old, to: event.sessionKey)
             events[index] = CompletionEvent(id: old.id, providerID: old.providerID, sessionID: event.sessionID,
                 project: event.project, directory: event.directory, sessionName: event.sessionName,
                 completedAt: old.completedAt, destination: event.destination, acknowledgedAt: old.acknowledgedAt)
