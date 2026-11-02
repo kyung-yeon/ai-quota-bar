@@ -23,6 +23,54 @@ import AppKit
             destination: SessionDestination(host: .orca, target: "term_\(index)")), isOpen: true,
             message: SessionMessage("First\nSecond\nThird\nFourth\nFifth", role: .assistant))
     }
+    var mixed = Array(rows.prefix(7))
+    for index in 0..<3 { mixed[index].message = nil }
+    panel.setPageSize(3)
+    panel.showSessions(mixed, animateNew: false)
+    let automaticFrame = panel.panel.frame
+    func pageButton(_ direction: String) -> NSButton {
+        all(panel.panel.contentView!).compactMap { $0 as? NSButton }.first {
+            $0.identifier?.rawValue == "completion-\(direction)-page"
+        }!
+    }
+    func pagerFrame() -> NSRect {
+        let button = pageButton("next")
+        panel.panel.contentView?.layoutSubtreeIfNeeded()
+        return panel.panel.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+    let automaticPager = pagerFrame()
+    var automaticVisited = Set<String>()
+    for _ in 0..<7 {
+        let root = panel.panel.contentView!; root.layoutSubtreeIfNeeded()
+        let cards = all(root).compactMap { $0 as? CompletionCard }
+        automaticVisited.formUnion(cards.map { $0.row.id })
+        try expect(panel.panel.frame == automaticFrame, "Paging short, long, and partial pages keeps the automatic window frame fixed")
+        try expect(pagerFrame() == automaticPager, "The pager stays at the same screen position on every page: \(pagerFrame()) vs \(automaticPager)")
+        try expect(cards.allSatisfy { root.bounds.contains($0.convert($0.bounds, to: root)) }, "Mixed-height cards fit without a session-list scrollbar")
+        let pager = pageButton("next").convert(pageButton("next").bounds, to: root)
+        try expect(cards.allSatisfy { !$0.convert($0.bounds, to: root).intersects(pager) }, "Page cards never overlap the fixed navigation footer")
+        if cards.first?.row.message != nil, let composer = all(root).compactMap({ $0 as? SessionComposer }).first {
+            panel.panel.makeFirstResponder(composer.editor)
+            composer.editor.insertText("Draft", replacementRange: NSRange(location: NSNotFound, length: 0))
+            try expect(panel.panel.frame == automaticFrame && pagerFrame() == automaticPager,
+                "Reserved editor space prevents focus and short drafts from resizing the automatic page")
+        }
+        if !pageButton("next").isEnabled { break }
+        pageButton("next").performClick(nil)
+    }
+    try expect(automaticVisited == Set(mixed.map(\.id)), "Fixed-height automatic pages keep every session reachable")
+    while pageButton("previous").isEnabled {
+        pageButton("previous").performClick(nil)
+        try expect(panel.panel.frame == automaticFrame && pagerFrame() == automaticPager, "Paging backward preserves window and pager geometry")
+    }
+    let draftComposer = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
+    panel.panel.makeFirstResponder(draftComposer.editor)
+    draftComposer.editor.insertText("A long follow-up\nwith several lines\nkept across pages", replacementRange: NSRange(location: NSNotFound, length: 0))
+    pageButton("next").performClick(nil)
+    panel.showSessions(mixed, animateNew: true)
+    try expect(panel.panel.frame == automaticFrame && pagerFrame() == automaticPager,
+        "Leaving an expanded draft and polling keep the same browsing viewport")
+    panel.setPageSize(10)
     panel.showSessions(Array(rows.prefix(2)), animateNew: false)
     let input = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
     input.editor.string = "Keep my draft"; input.textDidChange(Notification(name: NSText.didChangeNotification))
@@ -39,11 +87,13 @@ import AppKit
     panel.setPageSize(1)
     try expect(panel.panel.frame == resized, "Changing rows per page keeps the user's window size")
     panel.setPageSize(10)
+    let resizedPager = pagerFrame()
     var visited = Set<String>()
     for _ in 0..<30 {
         let root = panel.panel.contentView!; root.layoutSubtreeIfNeeded()
         let cards = all(root).compactMap { $0 as? CompletionCard }
         visited.formUnion(cards.map { $0.row.id })
+        try expect(panel.panel.frame == resized && pagerFrame() == resizedPager, "Manual window and footer positions remain fixed while paging")
         try expect(cards.allSatisfy { root.bounds.contains($0.convert($0.bounds, to: root)) }, "Resized page cards stay inside the content area")
         let next = all(root).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }!
         try expect(root.bounds.contains(next.convert(next.bounds, to: root)), "Resized window keeps the pager reachable")

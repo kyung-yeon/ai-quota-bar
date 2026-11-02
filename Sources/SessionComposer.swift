@@ -66,7 +66,8 @@ final class SessionComposer: NSView, NSTextViewDelegate {
     var onEditingEnded: (() -> Void)?
     var isEditing: Bool { editor.isEditable && window?.firstResponder === editor }
     var draft: String { editor.string }
-    var preferredHeight: CGFloat { (isEditing || draft.contains("\n") || draft.count > 60 ? 64 : 30) + 20 }
+    var unfocusedHeight: CGFloat { (draft.contains("\n") || draft.count > 60 ? 64 : 30) + 20 }
+    var preferredHeight: CGFloat { isEditing ? 84 : unfocusedHeight }
     var supported: Bool { row.isOpen && row.event.destination.host == .orca && !row.opensParent && row.event.destination.herdr == nil }
 
     init(row: SessionRow) {

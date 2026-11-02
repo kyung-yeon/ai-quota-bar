@@ -136,13 +136,17 @@ private final class CompletionHeader: NSStackView {
         next.setAccessibilityLabel(L10n.text("다음 알림", "Next completions"))
         previous.perform = { [weak self] in self?.changePage(-1) }
         next.perform = { [weak self] in self?.changePage(1) }
-        [NSView(), previous, pageLabel, next, NSView()].forEach { pagination.addArrangedSubview($0) }
+        [previous, pageLabel, next].forEach { pagination.addArrangedSubview($0) }
+        pagination.distribution = .fill
+        pageLabel.alignment = .center
+        pageLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        pageLabel.lineBreakMode = .byTruncatingTail
         pagination.spacing = 12; pagination.isHidden = true
         errorLabel.font = .systemFont(ofSize: 11); errorLabel.textColor = .systemOrange
         errorLabel.maximumNumberOfLines = 3; errorLabel.isHidden = true
         list.orientation = .vertical; list.alignment = .leading; list.spacing = 6
         list.translatesAutoresizingMaskIntoConstraints = false
-        [header, list, pagination, errorLabel].forEach { stack.addArrangedSubview($0) }
+        [header, list, errorLabel].forEach { stack.addArrangedSubview($0) }
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         effect.translatesAutoresizingMaskIntoConstraints = false
@@ -155,6 +159,9 @@ private final class CompletionHeader: NSStackView {
             effect.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
         ])
         chrome.addSubview(stack)
+        // Keep navigation stationary even on a short or partially filled page.
+        pagination.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(pagination)
         updateTransparency()
         minimumHeight = canvas.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
         NSLayoutConstraint.activate([
@@ -172,6 +179,10 @@ private final class CompletionHeader: NSStackView {
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pagination.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pagination.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+            pagination.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -10),
+            previous.widthAnchor.constraint(equalToConstant: 26),
+            next.widthAnchor.constraint(equalToConstant: 26),
             errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -299,6 +310,11 @@ private final class CompletionHeader: NSStackView {
     }
 
     private func changePage(_ offset: Int) {
+        // Once browsing starts, keep this viewport through focus changes and
+        // subsequent polling, just like a manually sized window.
+        if userContentSize == nil, !isCollapsed {
+            userContentSize = panel.contentRect(forFrameRect: panel.frame).size
+        }
         panel.makeFirstResponder(nil)
         pageIndex += offset
         renderPage()
@@ -393,7 +409,7 @@ private final class CompletionHeader: NSStackView {
         let cardWidth = width - Self.windowInset * 2 - 20
         return displayedRows.map { row -> CGFloat in
             let header: CGFloat = row.depth > 0 ? 36 : 48
-            let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.preferredHeight ?? 50)
+            let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.unfocusedHeight ?? 50)
             guard let message = row.message else { return header + input + (input > 0 ? 8 : 0) }
             let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
             return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14 + input
@@ -401,7 +417,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     private var fixedContentHeight: CGFloat {
-        26 + 18 + Self.windowInset * 2 + (count > 1 ? 32 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 46)
+        26 + 18 + Self.windowInset * 2 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
     }
     private var editorReserve: CGFloat { onSend == nil ? 0 : 34 }
     private func minimumContentHeight(width: CGFloat) -> CGFloat {
@@ -453,14 +469,24 @@ private final class CompletionHeader: NSStackView {
         }
         fitMessages()
         // Measure the actual card layout so there is no clipped content or internal scrolling.
-        var height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
+        func measuredHeight() -> CGFloat {
+            ceil(stack.fittingSize.height + 18 + Self.windowInset * 2 + (pagination.isHidden ? 0 : 34))
+        }
+        var height = measuredHeight()
         while height > heightLimit && pageSize > 1 && count > 0 && editingComposer == nil {
             pageSize -= 1
             renderPage()
             fitMessages()
-            height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
+            height = measuredHeight()
         }
-        if !isCollapsed { height = max(minHeight, requestedHeight == nil ? height : heightLimit) }
+        if !isCollapsed {
+            // Automatic sizing uses the same full-page budget on every page,
+            // not the current page's shorter messages or remaining row count.
+            let automaticHeight = count > 0
+                ? fixedContentHeight + CGFloat(min(count, pageSize)) * (tallestCardHeight(width: width) + 6) + editorReserve
+                : height
+            height = max(minHeight, requestedHeight == nil ? max(height, automaticHeight) : heightLimit)
+        }
         height = min(height, maximumHeight) + titleHeight
         let old = panel.frame
         let x = currentScreen != nil ? min(max(old.minX, visible.minX), visible.maxX - width) : visible.maxX - width
