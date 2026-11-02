@@ -70,6 +70,8 @@ import AppKit
     menu.addItem(action)
     let disabled = NSMenuItem(title: "Disabled", action: #selector(MenuActionFixture.run(_:)), keyEquivalent: "")
     disabled.target = target; disabled.isEnabled = false; menu.addItem(disabled)
+    let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+    settings.submenu = NSMenu(); menu.addItem(settings)
     let anchor = NSRect(x: 900, y: 1084, width: 180, height: 25)
     usage.show(menu: menu, anchor: anchor, visibleFrame: screen)
     let root = usage.panel.contentView!
@@ -107,6 +109,34 @@ import AppKit
     try expect(effect.isHidden, "Quota window respects Reduce Transparency")
     reduce = false; usage.updateAppearance()
     try expect(screen.contains(usage.panel.frame), "Quota window fits below its status item within the current monitor")
+    let hoverRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == action.title }!
+    let enter = NSEvent.enterExitEvent(with: .mouseEntered,
+        location: hoverRow.convert(NSPoint(x: 10, y: 10), to: nil), modifierFlags: [], timestamp: 0,
+        windowNumber: usage.panel.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+    hoverRow.mouseEntered(with: enter)
+    try expect(hoverRow.isHighlighted, "Pointer entry highlights the top-level usage menu row")
+    hoverRow.updateTrackingAreas()
+    try expect(hoverRow.trackingAreas.contains { $0.options.contains([.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways]) },
+        "Visible menu rows track pointer movement even when the menu-bar app is inactive")
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        hoverRow.appearance = NSAppearance(named: appearance)
+        try expect(backgroundAlpha(hoverRow, at: NSPoint(x: hoverRow.bounds.midX, y: 3)) > 0.98,
+            "Hover paints an opaque full-row highlight in \(appearance.rawValue)")
+    }
+    hoverRow.appearance = nil
+    let settingsRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == settings.title }!
+    settingsRow.mouseEntered(with: enter)
+    try expect(settingsRow.isHighlighted && !hoverRow.isHighlighted, "Moving onto Settings highlights only that row")
+    hoverRow.mouseExited(with: enter)
+    try expect(settingsRow.isHighlighted, "A late exit from the previous row leaves the current highlight intact")
+    settingsRow.mouseExited(with: enter)
+    try expect(!settingsRow.isHighlighted, "Leaving the row removes its highlight")
+    try expect(backgroundAlpha(settingsRow, at: NSPoint(x: settingsRow.bounds.midX, y: 3)) < 0.02,
+        "Leaving a row also removes the rendered background")
+    hoverRow.mouseMoved(with: enter)
+    let disabledRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == disabled.title }!
+    disabledRow.mouseEntered(with: enter)
+    try expect(!disabledRow.isHighlighted && !hoverRow.isHighlighted, "Disabled rows never retain hover selection")
     usage.invoke(1)
     try expect(target.received == nil && usage.isVisible, "Disabled menu actions cannot run")
     usage.invoke(0)
@@ -121,6 +151,10 @@ import AppKit
     target.received = nil
     key(125); key(124)
     try expect(target.received == nil && usage.isVisible, "Right Arrow never executes a selected leaf action")
+    let keyboardRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == action.title }!
+    try expect(keyboardRow.isHighlighted, "Keyboard selection uses the same row highlight")
+    settingsRow.mouseEntered(with: enter)
+    try expect(keyboardRow.isHighlighted, "Detached rows cannot change selection after a menu rebuild")
     key(15, flags: .command, characters: "r")
     try expect(target.received === action, "Command shortcuts still dispatch the original menu item")
     let before = NSMenu(); before.autoenablesItems = false
