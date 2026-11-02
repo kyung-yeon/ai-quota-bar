@@ -8,23 +8,26 @@ final class CompletionGlass: NSVisualEffectView {
         let value = preferences.integer(forKey: "backgroundTransparencyPercent")
         return percentages.contains(value) ? value : 70
     }
-    private let tint = CompletionSurface(fill: CompletionColors.background, radius: 14, border: false)
+    private let tint: CompletionSurface
 
-    init(material: NSVisualEffectView.Material) {
+    init(material: NSVisualEffectView.Material, cornerRadius: CGFloat = 14) {
+        tint = CompletionSurface(fill: CompletionColors.background, radius: cornerRadius, border: false)
         super.init(frame: .zero)
         self.material = material
         blendingMode = .behindWindow
         state = .active
-        // Use AppKit's material mask for rounded corners.
-        let radius: CGFloat = 14
-        let mask = NSImage(size: NSSize(width: radius * 2 + 1, height: radius * 2 + 1), flipped: false) { rect in
-            NSColor.white.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
+        // Standalone popups round both layers; native window content fills its frame.
+        if cornerRadius > 0 {
+            let radius = cornerRadius
+            let mask = NSImage(size: NSSize(width: radius * 2 + 1, height: radius * 2 + 1), flipped: false) { rect in
+                NSColor.white.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+                return true
+            }
+            mask.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+            mask.resizingMode = .stretch
+            maskImage = mask
         }
-        mask.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        mask.resizingMode = .stretch
-        maskImage = mask
         tint.identifier = NSUserInterfaceItemIdentifier("glass-tint")
         tint.autoresizingMask = [.width, .height]
         addSubview(tint)

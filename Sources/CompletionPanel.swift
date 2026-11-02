@@ -57,7 +57,7 @@ private final class CompletionHeader: NSStackView {
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 0, border: false)
-    private let effect = CompletionGlass(material: .hudWindow)
+    private let effect = CompletionGlass(material: .hudWindow, cornerRadius: 0)
     private let resizeHandle = SessionResizeHandle()
     var translucent: Bool { preferences.bool(forKey: "floatingTransparency") }
     var transparencyPercent: Int { CompletionGlass.percentage(in: preferences) }
@@ -83,6 +83,7 @@ private final class CompletionHeader: NSStackView {
     private let heading = CompletionCard.label("", size: 13)
     private let badge = CompletionCard.label("", size: 12)
     private let badgeContainer = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
+    private let statusSummary = SessionStatusSummary()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
     private var reminder: Timer?
@@ -156,7 +157,7 @@ private final class CompletionHeader: NSStackView {
         badge.translatesAutoresizingMaskIntoConstraints = false
         let pill = badgeContainer
         pill.addSubview(badge)
-        let header = CompletionHeader(views: [heading, pill, NSView()]); header.spacing = 8
+        let header = CompletionHeader(views: [heading, pill, statusSummary, NSView()]); header.spacing = 8
         header.heightAnchor.constraint(equalToConstant: 26).isActive = true
         panel.initialFirstResponder = header
         header.identifier = NSUserInterfaceItemIdentifier("completion-header")
@@ -184,8 +185,6 @@ private final class CompletionHeader: NSStackView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         effect.translatesAutoresizingMaskIntoConstraints = false
         effect.identifier = NSUserInterfaceItemIdentifier("floating-transparency")
-        // The native window supplies the outer shape; no second rounded frame.
-        effect.maskImage = nil
         chrome.addSubview(effect)
         NSLayoutConstraint.activate([
             effect.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
@@ -279,6 +278,9 @@ private final class CompletionHeader: NSStackView {
     }
 
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
+        heading.stringValue = L10n.text("AI 세션", "AI sessions")
+        badge.stringValue = "\(rows.count)"
+        statusSummary.update(rows)
         if liveResize { pendingRows = rows; return }
         if editingComposer != nil {
             pendingRows = rows
@@ -305,8 +307,6 @@ private final class CompletionHeader: NSStackView {
         // New completions still sort first, but never interrupt someone browsing a later page.
         clearList()
         guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
-        heading.stringValue = L10n.text("AI 세션", "AI sessions")
-        badge.stringValue = "\(rows.count)"
         renderPage()
         position()
         present()
@@ -381,6 +381,7 @@ private final class CompletionHeader: NSStackView {
         pagination.isHidden = true
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
         badge.stringValue = "0"
+        statusSummary.update([])
         let text = NSTextField(wrappingLabelWithString: message)
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)

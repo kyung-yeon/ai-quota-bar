@@ -9,6 +9,7 @@ import QuartzCore
     }
     try panelWindowUITests(expect)
     try windowChromeUITests(expect)
+    try sessionStatusUITests(expect)
     guard let primary = NSScreen.screens.first else { throw CompletionError.unavailable }
     var primaryFrame = primary.visibleFrame
     let secondaryFrame = NSRect(x: primaryFrame.maxX + 100, y: primaryFrame.minY, width: 1200, height: 800)
