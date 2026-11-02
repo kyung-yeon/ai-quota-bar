@@ -273,7 +273,7 @@ private final class CompletionHeader: NSStackView {
             }
             let card = CompletionCard(row: row, composer: onSend == nil ? nil : composer, open: { [weak self] in self?.onOpen?(row.event) },
                                       acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
-            card.setTranslucent(translucent && !reduceTransparency())
+            card.setTransparency(translucent && !reduceTransparency() ? transparencyPercent : 0)
             addRow(card)
         }
     }
@@ -326,7 +326,7 @@ private final class CompletionHeader: NSStackView {
         effect.isHidden = !enabled
         effect.setTransparency(transparencyPercent)
         chrome.fillOpacity = enabled ? 0 : 1
-        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTranslucent(enabled) }
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTransparency(enabled ? transparencyPercent : 0) }
     }
 
     func setPageSize(_ value: Int) {

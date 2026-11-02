@@ -82,10 +82,27 @@ import AppKit
     try expect(tintCoversBackdrop(usage.panel), "Usage tint covers the full material after initial layout")
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && usage.panel.alphaValue == 0,
         "The same transparency setting now affects the quota window background without fading its text")
-    // cacheDisplay does not capture WindowServer's behind-window blur. A low
-    // bitmap alpha would reward the sharp background leak this check prevents.
-    try expect(effect.alphaValue == 1 && effect.maskImage != nil && effect.layer?.masksToBounds != true,
-        "The usage backdrop keeps full-strength blur with an AppKit material mask, without a sharp transparency bypass")
+    try expect(effect.maskImage != nil && effect.layer?.masksToBounds != true,
+        "The usage backdrop uses the native rounded material mask")
+    // At the endpoints there is either a solid fill or no backdrop. Unlike blur
+    // strength, these two cases can be verified in an AppKit-rendered bitmap.
+    func backgroundAlpha(_ root: NSView, at point: NSPoint) -> CGFloat {
+        root.layoutSubtreeIfNeeded()
+        let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds)!
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        let x = Int(point.x * CGFloat(bitmap.pixelsWide) / root.bounds.width)
+        let y = Int(point.y * CGFloat(bitmap.pixelsHigh) / root.bounds.height)
+        return bitmap.colorAt(x: x, y: y)!.alphaComponent
+    }
+    for percent in [0, 100, 0] {
+        panel.setTransparencyPercent(percent); usage.updateAppearance()
+        let alpha = backgroundAlpha(usage.panel.contentView!, at: NSPoint(x: 3, y: usage.panel.contentView!.bounds.midY))
+        try expect(percent == 0 ? alpha > 0.98 : alpha < 0.02,
+            "Rendered usage background follows the \(percent) percent endpoint")
+        try expect(all(usage.panel.contentView!).compactMap { $0 as? NSTextField }.allSatisfy { $0.alphaValue == 1 },
+            "Transparency never fades quota text")
+    }
+    panel.setTransparencyPercent(70); usage.updateAppearance()
     reduce = true; usage.updateAppearance()
     try expect(effect.isHidden, "Quota window respects Reduce Transparency")
     reduce = false; usage.updateAppearance()

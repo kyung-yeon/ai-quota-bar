@@ -27,7 +27,9 @@ import AppKit
         transparency.submenu?.addItem(toggle)
         transparency.submenu?.addItem(.separator())
         for percent in CompletionGlass.percentages {
-            let item = NSMenuItem(title: "\(percent)%", action: percentageAction, keyEquivalent: "")
+            let title = percent == 0 ? L10n.text("0% (불투명)", "0% (Opaque)")
+                : percent == 100 ? L10n.text("100% (투명)", "100% (Clear)") : "\(percent)%"
+            let item = NSMenuItem(title: title, action: percentageAction, keyEquivalent: "")
             item.tag = percent; item.target = target
             item.state = translucent && transparencyPercent == percent ? .on : .off
             transparency.submenu?.addItem(item)
