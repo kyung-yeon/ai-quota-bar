@@ -95,6 +95,8 @@ Notifications initially appear on the macOS primary display. Drag the header or 
 
 Double-click the native **AiQuotaBar** title bar or the **AI sessions** header to collapse the panel to its title and count, beneath the native window buttons. Double-click again to restore the expanded size. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
 
+Right-aligned **All n**, **Done n**, and **Working n** tags filter the list when clicked; the selected tag is highlighted. Counts always cover the full list. Filters preserve window size and drafts, and keep parent context for matching subagents. **All** restores the full list.
+
 The header shows **Done n** for unacknowledged completions and **Working n** for open sessions currently running, across all pages and subagents. Both tags remain visible while collapsed and update during input. A session with an unread previous response and new work in progress contributes to both counts.
 
 This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.

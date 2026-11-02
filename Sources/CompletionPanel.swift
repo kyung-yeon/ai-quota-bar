@@ -69,6 +69,8 @@ private final class CompletionHeader: NSStackView {
     private let previous = CompletionButton("", symbol: "chevron.left", plain: true, action: {})
     private let next = CompletionButton("", symbol: "chevron.right", plain: true, action: {})
     private var displayedRows: [SessionRow] = []
+    private var allRows: [SessionRow] = []
+    private var selectedFilter = SessionStatusFilter.all
     private var pendingRows: [SessionRow]?
     private var composers: [String: SessionComposer] = [:]
     var onSend: ((SessionRow, String, PromptSubmission, @escaping (Result<String, Error>) -> Void) -> Void)?
@@ -81,14 +83,12 @@ private final class CompletionHeader: NSStackView {
         return Self.pageSizeOptions.contains(value) ? value : 10
     }
     private let heading = CompletionCard.label("", size: 13)
-    private let badge = CompletionCard.label("", size: 12)
-    private let badgeContainer = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
     private let statusSummary = SessionStatusSummary()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
     private var reminder: Timer?
     private let reminderKey = "unreadReminder"
-    var activeReminder: CAAnimation? { badgeContainer.layer?.animation(forKey: reminderKey) }
+    var activeReminder: CAAnimation? { statusSummary.reminderLayer?.animation(forKey: reminderKey) }
     private var observers: [NSObjectProtocol] = []
     private var count = 0
     private let visibleFrames: () -> [NSRect]
@@ -152,12 +152,8 @@ private final class CompletionHeader: NSStackView {
         chrome.translatesAutoresizingMaskIntoConstraints = false
         canvas.addSubview(chrome)
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
-        badge.font = .systemFont(ofSize: 11, weight: .semibold)
-        badge.alignment = .center
-        badge.translatesAutoresizingMaskIntoConstraints = false
-        let pill = badgeContainer
-        pill.addSubview(badge)
-        let header = CompletionHeader(views: [heading, pill, statusSummary, NSView()]); header.spacing = 8
+        let header = CompletionHeader(views: [heading, NSView(), statusSummary]); header.spacing = 8
+        statusSummary.onSelect = { [weak self] in self?.selectFilter($0) }
         header.heightAnchor.constraint(equalToConstant: 26).isActive = true
         panel.initialFirstResponder = header
         header.identifier = NSUserInterfaceItemIdentifier("completion-header")
@@ -226,9 +222,6 @@ private final class CompletionHeader: NSStackView {
             stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 8),
-            pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 24), pill.heightAnchor.constraint(equalToConstant: 20),
-            pill.widthAnchor.constraint(equalTo: badge.widthAnchor, constant: 12),
-            badge.centerXAnchor.constraint(equalTo: pill.centerXAnchor), badge.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pagination.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -246,7 +239,7 @@ private final class CompletionHeader: NSStackView {
                 guard let self else { return }
                 if self.reduceMotion() {
                     self.stopRowMotion()
-                    self.badgeContainer.layer?.removeAnimation(forKey: self.reminderKey)
+                    self.statusSummary.reminderLayer?.removeAnimation(forKey: self.reminderKey)
                 }
                 self.updateTransparency()
                 self.updateActivityMotion()
@@ -273,14 +266,14 @@ private final class CompletionHeader: NSStackView {
     }
 
     func show(_ events: [CompletionEvent], animateNew: Bool) {
-        guard !events.isEmpty else { displayedRows = []; count = 0; hide(); return }
+        guard !events.isEmpty else { allRows = []; displayedRows = []; count = 0; hide(); return }
         showSessions(events.map { SessionRow(event: $0) }, animateNew: animateNew)
     }
 
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
-        badge.stringValue = "\(rows.count)"
-        statusSummary.update(rows)
+        allRows = rows
+        statusSummary.update(rows, selected: selectedFilter)
         if liveResize { pendingRows = rows; return }
         if editingComposer != nil {
             pendingRows = rows
@@ -302,11 +295,11 @@ private final class CompletionHeader: NSStackView {
             }
             return (card.row.id, panel.convertToScreen(visible))
         })
-        count = rows.count
-        displayedRows = rows
+        displayedRows = selectedFilter.apply(to: rows)
+        count = displayedRows.count
         // New completions still sort first, but never interrupt someone browsing a later page.
         clearList()
-        guard !rows.isEmpty else { showEmpty(L10n.text("열려 있는 AI 세션을 기다리는 중입니다.", "Waiting for an open AI session.")); return }
+        guard !displayedRows.isEmpty else { showEmptyContents(selectedFilter.emptyMessage); return }
         renderPage()
         position()
         present()
@@ -377,12 +370,17 @@ private final class CompletionHeader: NSStackView {
     }
 
     func showEmpty(_ message: String) {
+        allRows = []; pendingRows = nil
+        statusSummary.update([], selected: selectedFilter)
+        showEmptyContents(message)
+    }
+
+    private func showEmptyContents(_ message: String) {
         count = 0; displayedRows = []; stopRowMotion(); clearList()
         pagination.isHidden = true
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
-        badge.stringValue = "0"
-        statusSummary.update([])
         let text = NSTextField(wrappingLabelWithString: message)
+        text.identifier = NSUserInterfaceItemIdentifier("session-filter-empty")
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)
         position()
@@ -430,12 +428,25 @@ private final class CompletionHeader: NSStackView {
 
     func setPageSize(_ value: Int) {
         guard Self.pageSizeOptions.contains(value) else { return }
-        let latest = pendingRows ?? displayedRows
+        let latest = pendingRows ?? allRows
         pendingRows = nil
         panel.makeFirstResponder(panel.initialFirstResponder)
         preferences.set(value, forKey: "sessionPageSize")
         pageIndex = 0
         if panel.isVisible { showSessions(latest, animateNew: false) }
+    }
+
+    private func selectFilter(_ filter: SessionStatusFilter) {
+        guard filter != selectedFilter else { statusSummary.update(allRows, selected: selectedFilter); return }
+        let latest = pendingRows ?? allRows
+        pendingRows = nil
+        panel.makeFirstResponder(panel.initialFirstResponder)
+        if userContentSize == nil, !isCollapsed {
+            userContentSize = panel.contentRect(forFrameRect: panel.frame).size
+        }
+        selectedFilter = filter
+        pageIndex = 0
+        showSessions(latest, animateNew: false)
     }
 
     private func updateActivityMotion() {
@@ -616,13 +627,13 @@ private final class CompletionHeader: NSStackView {
     }
     private func stopRowMotion() {
         list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
-        badgeContainer.layer?.removeAnimation(forKey: reminderKey)
+        statusSummary.reminderLayer?.removeAnimation(forKey: reminderKey)
     }
 
     func remindUnread() {
-        guard editingComposer == nil, panel.isVisible, !panel.isMiniaturized, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
+        guard editingComposer == nil, panel.isVisible, !panel.isMiniaturized, allRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
               !list.arrangedSubviews.contains(where: { $0.layer?.animation(forKey: "sessionPromotion") != nil }) else { return }
         // Keep the real frame, resize edges, and native controls stationary.
-        badgeContainer.layer?.add(CompletionMotion.wiggle(size: badgeContainer.bounds.size), forKey: reminderKey)
+        statusSummary.reminderLayer?.add(CompletionMotion.wiggle(size: statusSummary.reminderSize), forKey: reminderKey)
     }
 }
