@@ -230,7 +230,9 @@ import QuartzCore
     let live = LiveSession(event: runtimeEvent, activity: .running, updatedAt: Date())
     discovery.set([live])
     let recovery = CompletionController(store: CompletionStore(directory: directory.appendingPathComponent("recovery")), panel: recoveryPanel,
-        preferences: recoveryPreferences, discover: { try discovery.read() }, connect: { [:] })
+        preferences: recoveryPreferences,
+        sendPrompt: { row, text, mode in "\(row.event.destination.target)|\(mode)|\(text)" },
+        discover: { try discovery.read() }, connect: { [:] })
     recovery.start()
     func waitForActivity(_ activity: SessionActivity) -> Bool {
         let deadline = Date().addingTimeInterval(5)
@@ -241,6 +243,13 @@ import QuartzCore
         return false
     }
     try expect(waitForActivity(.running), "Runtime discovery displays a working session")
+    let workingRow = descendants(recoveryPanel.panel.contentView!).compactMap { $0 as? CompletionCard }.first!.row
+    var delivery: Result<String, Error>?
+    recoveryPanel.onSend?(workingRow, "Follow up", .queue) { delivery = $0 }
+    let sendDeadline = Date().addingTimeInterval(4)
+    while delivery == nil && Date() < sendDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    try expect((try? delivery?.get()) == "term_recovery|queue|Follow up",
+        "Controller forwards working-session queue intent to the exact discovered destination")
     discovery.set(nil)
     try expect(waitForActivity(.unknown), "A temporary discovery failure retains the session with unknown activity")
     var done = live; done.activity = .idle; done.updatedAt = Date(); done.completionToken = "recovered"

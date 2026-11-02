@@ -19,7 +19,7 @@ import AppKit
     let screen = NSRect(x: 0, y: 0, width: 1728, height: 1084)
     let panel = CompletionPanel(visibleFrames: { [screen] }, preferences: prefs)
     panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
-    panel.onSend = { _, _, _ in }
+    panel.onSend = { _, _, _, _ in }
     defer { panel.hide() }
     let message = SessionMessage("One\nTwo\nThree\nFour\nFive", role: .assistant)!
     let rows = (0..<25).map { index in

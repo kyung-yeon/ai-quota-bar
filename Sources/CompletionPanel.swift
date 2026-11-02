@@ -40,7 +40,7 @@ private final class CompletionHeader: NSStackView {
     private var displayedRows: [SessionRow] = []
     private var pendingRows: [SessionRow]?
     private var composers: [String: SessionComposer] = [:]
-    var onSend: ((SessionRow, String, @escaping (Result<String, Error>) -> Void) -> Void)?
+    var onSend: ((SessionRow, String, PromptSubmission, @escaping (Result<String, Error>) -> Void) -> Void)?
     private var editingComposer: SessionComposer? { composers.values.first(where: \.isEditing) }
     private var pageIndex = 0
     private var pageSize = 10
@@ -280,9 +280,9 @@ private final class CompletionHeader: NSStackView {
             let composer = composers[row.id] ?? SessionComposer(row: row)
             composers[row.id] = composer
             composer.update(row)
-            composer.onSend = { [weak self] row, text, done in
+            composer.onSend = { [weak self] row, text, mode, done in
                 guard let send = self?.onSend else { done(.failure(CompletionError.unavailable)); return }
-                send(row, text, done)
+                send(row, text, mode, done)
             }
             composer.onLayoutChanged = { [weak self] in self?.position() }
             composer.onEditingEnded = { [weak self] in

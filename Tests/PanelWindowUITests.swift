@@ -9,7 +9,7 @@ import AppKit
     var screens = [screen]
     let panel = CompletionPanel(visibleFrames: { screens }, preferences: preferences)
     panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
-    panel.onSend = { _, _, _ in }
+    panel.onSend = { _, _, _, _ in }
     defer { panel.hide() }
     let styles: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
     try expect(panel.panel.styleMask.isSuperset(of: styles), "Floating sessions support native window controls and edge resizing")
@@ -73,7 +73,7 @@ import AppKit
     panel.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: panel.panel))
     let restored = CompletionPanel(visibleFrames: { screens }, preferences: preferences)
     restored.panel.alphaValue = 0; restored.panel.ignoresMouseEvents = true
-    restored.onSend = { _, _, _ in }
+    restored.onSend = { _, _, _, _ in }
     restored.showSessions(rows, animateNew: false)
     try expect(restored.panel.frame == resized, "User size and position survive a new app window")
     restored.hide()

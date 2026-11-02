@@ -70,8 +70,8 @@ import AppKit
     panel.setTransparency(false)
     let event = CompletionEvent(id: "one", providerID: "codex", sessionID: "one", project: "Sample", directory: "/sample", sessionName: "One", completedAt: Date(), destination: SessionDestination(host: .orca, target: "term_one"))
     var row = SessionRow(event: event, isOpen: true)
-    var sent: [(String, String)] = [], complete: ((Result<String, Error>) -> Void)?
-    panel.onSend = { row, text, done in sent.append((row.id, text)); complete = done }
+    var sent: [(String, String, PromptSubmission)] = [], complete: ((Result<String, Error>) -> Void)?
+    panel.onSend = { row, text, mode, done in sent.append((row.id, text, mode)); complete = done }
     panel.showSessions([row], animateNew: false)
     panel.panel.contentView?.layoutSubtreeIfNeeded()
     let input = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
@@ -83,6 +83,11 @@ import AppKit
             "Session card backgrounds follow \(percent) percent while editors stay legible")
     }
     try expect(panel.panel.firstResponder !== input.editor, "Showing the panel never automatically focuses an input or pauses polling")
+    let placeholderPoint = input.convert(NSPoint(x: 20, y: 14), to: panel.panel.contentView!)
+    try expect(panel.panel.contentView!.hitTest(placeholderPoint) === input.editor,
+        "Clicking the empty input placeholder reaches the actual text editor")
+    try expect(input.editor.acceptsFirstMouse(for: nil) && input.editor.needsPanelToBecomeKey && !input.editor.mouseDownCanMoveWindow,
+        "Input accepts the first click and does not drag the floating window")
     input.editor.string = "한국어 요청\n후속 작업"
     input.textDidChange(Notification(name: NSText.didChangeNotification))
     try expect(input.sendButton.isEnabled && input.editor.isEditable, "Idle Orca session accepts a multiline draft")
@@ -90,7 +95,7 @@ import AppKit
     try expect(panel.panel.firstResponder === input.editor, "Nonactivating panel can focus its text editor")
     row.activity = .running
     panel.showSessions([row], animateNew: false)
-    try expect(panel.panel.firstResponder === input.editor && input.draft == "한국어 요청\n후속 작업" && !input.sendButton.isEnabled, "Polling preserves editor focus and text while disabling send for running work")
+    try expect(panel.panel.firstResponder === input.editor && input.draft == "한국어 요청\n후속 작업" && input.sendButton.isEnabled, "Polling preserves editor focus and text while allowing send for running work")
     panel.panel.makeFirstResponder(nil)
     row.activity = .idle; panel.showSessions([row], animateNew: false)
     let retained = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
@@ -101,6 +106,11 @@ import AppKit
     input.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
     _ = input.editor.performKeyEquivalent(with: submitKey)
     try expect(sent.isEmpty, "Send does not submit an unfinished IME composition")
+    key(36, "\r")
+    try expect(sent.isEmpty, "Plain Enter commits marked text without sending the request")
+    input.editor.setMarkedText("글", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(48, "\t")
+    try expect(sent.isEmpty, "Tab during IME composition never queues an unfinished request")
     input.editor.unmarkText()
     _ = input.editor.performKeyEquivalent(with: submitKey)
     input.submit()
@@ -111,6 +121,37 @@ import AppKit
     checked.performClick(nil)
     input.submit(); complete?(.success("Delivered"))
     try expect(input.draft.isEmpty && !input.sending, "Confirmed delivery clears only the submitted draft")
+    row.activity = .running; input.update(row)
+    panel.panel.makeFirstResponder(input.editor)
+    func key(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = []) {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+            windowNumber: panel.panel.windowNumber, context: nil, characters: characters,
+            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+        input.editor.keyDown(with: event)
+    }
+    input.editor.insertText("작업 중 요청", replacementRange: NSRange(location: NSNotFound, length: 0))
+    let beforeNewline = sent.count
+    key(36, "\r", flags: .shift)
+    try expect(input.draft == "작업 중 요청\n" && sent.count == beforeNewline,
+        "Shift Enter inserts a newline without sending while work is running")
+    input.editor.insertText("두 번째 줄", replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(36, "\r")
+    try expect(sent.last?.1 == "작업 중 요청\n두 번째 줄" && sent.last?.2 == .send && input.sending,
+        "Plain Enter submits the complete multiline request during running work")
+    complete?(.success("Delivered"))
+    input.editor.insertText("다음 작업", replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(48, "\t")
+    try expect(sent.last?.1 == "다음 작업" && sent.last?.2 == .queue && input.sending,
+        "Tab queues the focused session's draft instead of inserting a tab or moving focus")
+    complete?(.success("Queue input delivered"))
+    try expect(input.draft.isEmpty, "A delivered queue request clears its draft")
+    row.activity = .unknown; input.update(row)
+    input.editor.insertText("Keep until ready", replacementRange: NSRange(location: NSNotFound, length: 0))
+    let beforeUnknown = sent.count
+    key(36, "\r"); key(48, "\t")
+    try expect(sent.count == beforeUnknown && input.draft == "Keep until ready", "Unknown status preserves typing but blocks both send and queue")
+    row.activity = .idle; input.update(row)
+    panel.panel.makeFirstResponder(nil)
     input.editor.string = "Keep across pages"; input.textDidChange(Notification(name: NSText.didChangeNotification))
     let rows: [SessionRow] = (0..<7).map { index in
         var item = row

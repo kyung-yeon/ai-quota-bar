@@ -1,14 +1,34 @@
 import AppKit
 
 final class SessionInput: NSTextView {
-    var onSubmit: (() -> Void)?
+    var onSubmit: ((PromptSubmission) -> Void)?
     override var acceptsFirstResponder: Bool { isEditable }
     override var needsPanelToBecomeKey: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private func modifiers(_ event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection([.command, .control, .option, .shift])
+    }
+    override func keyDown(with event: NSEvent) {
+        guard window?.firstResponder === self else { return }
+        // Let the input method commit a candidate before interpreting submit keys.
+        if !hasMarkedText() {
+            let flags = modifiers(event)
+            if event.keyCode == 36 || event.keyCode == 76 {
+                if flags.isEmpty || flags == .command { onSubmit?(.send); return }
+                if flags == .shift { insertNewlineIgnoringFieldEditor(nil); return }
+            }
+            if event.keyCode == 48, flags.isEmpty, !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onSubmit?(.queue); return
+            }
+        }
+        super.keyDown(with: event)
+    }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder === self else { return false }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = modifiers(event)
         if modifiers == .command, event.keyCode == 36 || event.keyCode == 76 {
-            if !hasMarkedText() { onSubmit?() }
+            if !hasMarkedText() { onSubmit?(.send) }
             return true
         }
         if modifiers == .command {
@@ -25,6 +45,10 @@ final class SessionInput: NSTextView {
     }
 }
 
+private final class SessionPlaceholder: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// Retain the actual editor per session so paging and polling preserve drafts and IME state.
 final class SessionComposer: NSView, NSTextViewDelegate {
     let editor = SessionInput()
@@ -33,11 +57,11 @@ final class SessionComposer: NSView, NSTextViewDelegate {
     private let resolved = CompletionButton(L10n.text("확인했어요", "Checked"), plain: true, action: {})
     private var uncertain = false
     private let hint = CompletionCard.label("", size: 10, color: .secondaryLabelColor)
-    private let placeholder = CompletionCard.label(L10n.text("후속 요청 입력…", "Write a follow-up…"), size: 11, color: .placeholderTextColor)
+    private let placeholder = SessionPlaceholder(labelWithString: L10n.text("후속 요청 입력…", "Write a follow-up…"))
     private(set) var row: SessionRow
     private(set) var sending = false
     private(set) var notice: String?
-    var onSend: ((SessionRow, String, @escaping (Result<String, Error>) -> Void) -> Void)?
+    var onSend: ((SessionRow, String, PromptSubmission, @escaping (Result<String, Error>) -> Void) -> Void)?
     var onLayoutChanged: (() -> Void)?
     var onEditingEnded: (() -> Void)?
     var isEditing: Bool { editor.isEditable && window?.firstResponder === editor }
@@ -51,6 +75,7 @@ final class SessionComposer: NSView, NSTextViewDelegate {
         identifier = NSUserInterfaceItemIdentifier("session-composer")
         wantsLayer = true; layer?.cornerRadius = 6; layer?.borderWidth = 1
         editor.font = .systemFont(ofSize: 11); editor.isRichText = false; editor.importsGraphics = false
+        editor.textColor = .labelColor; editor.insertionPointColor = .labelColor
         editor.drawsBackground = false; editor.allowsUndo = true
         editor.textContainerInset = NSSize(width: 4, height: 6)
         editor.isVerticallyResizable = true; editor.isHorizontallyResizable = false
@@ -60,12 +85,13 @@ final class SessionComposer: NSView, NSTextViewDelegate {
         scroll.drawsBackground = false; scroll.hasVerticalScroller = false
         scroll.identifier = NSUserInterfaceItemIdentifier("session-input-scroll")
         scroll.documentView = editor
+        placeholder.font = .systemFont(ofSize: 11); placeholder.textColor = .placeholderTextColor
         [scroll, placeholder, hint, sendButton, resolved].forEach { addSubview($0) }
         sendButton.identifier = NSUserInterfaceItemIdentifier("session-send")
-        sendButton.toolTip = L10n.text("전송 (⌘ Enter)", "Send (⌘ Enter)")
+        sendButton.toolTip = L10n.text("전송 (Enter)", "Send (Enter)")
         sendButton.setAccessibilityLabel(sendButton.toolTip!)
         sendButton.perform = { [weak self] in self?.submit() }
-        editor.onSubmit = { [weak self] in self?.submit() }
+        editor.onSubmit = { [weak self] mode in self?.submit(mode) }
         resolved.font = .systemFont(ofSize: 10)
         resolved.toolTip = L10n.text("원래 세션에서 전송 여부를 확인한 후 입력 잠금 해제", "Unlock after checking delivery in the original session")
         resolved.perform = { [weak self] in
@@ -98,7 +124,7 @@ final class SessionComposer: NSView, NSTextViewDelegate {
         self.row = row
         editor.isEditable = supported && !sending
         editor.isSelectable = supported
-        sendButton.isEnabled = supported && row.activity == .idle && !sending && !uncertain && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sendButton.isEnabled = supported && row.activity != .unknown && !sending && !uncertain && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         resolved.isHidden = !uncertain
         needsLayout = true
         placeholder.isHidden = !draft.isEmpty
@@ -106,9 +132,8 @@ final class SessionComposer: NSView, NSTextViewDelegate {
         else if let notice { hint.stringValue = notice }
         else if !row.isOpen { hint.stringValue = L10n.text("종료된 세션", "Session closed") }
         else if !supported { hint.stringValue = L10n.text("이 세션은 직접 입력을 지원하지 않습니다.", "Direct input is unavailable for this session.") }
-        else if row.activity == .running { hint.stringValue = L10n.text("작업 중 · 초안 작성 가능", "Working · draft your next request") }
         else if row.activity == .unknown { hint.stringValue = L10n.text("세션 상태 확인 중…", "Checking session status…") }
-        else { hint.stringValue = L10n.text("⌘ Enter 전송 · Enter 줄바꿈", "⌘ Enter to send · Enter for a new line") }
+        else { hint.stringValue = L10n.text("Enter 전송 · ⇧ Enter 줄바꿈 · Tab 큐", "Enter send · ⇧ Enter new line · Tab queue") }
         hint.toolTip = hint.stringValue
         refreshStyle()
     }
@@ -117,11 +142,11 @@ final class SessionComposer: NSView, NSTextViewDelegate {
     }
     func textDidBeginEditing(_ notification: Notification) { onLayoutChanged?() }
     func textDidEndEditing(_ notification: Notification) { onLayoutChanged?(); onEditingEnded?() }
-    func submit() {
+    func submit(_ mode: PromptSubmission = .send) {
         guard sendButton.isEnabled, !editor.hasMarkedText(), let onSend else { return }
         let text = draft
         sending = true; notice = nil; update(row)
-        onSend(row, text) { [weak self] result in
+        onSend(row, text, mode) { [weak self] result in
             guard let self else { return }
             self.sending = false
             switch result {

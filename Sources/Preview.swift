@@ -20,7 +20,7 @@ enum Preview {
         previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview")
         defer { previewPreferences.removePersistentDomain(forName: "AiQuotaBar.Preview") }
         let panel = CompletionPanel(preferences: previewPreferences)
-        panel.onSend = { _, _, done in done(.success("Preview")) }
+        panel.onSend = { _, _, _, done in done(.success("Preview")) }
         if CommandLine.arguments.contains("--transparent") { panel.setTransparency(true) }
         panel.panel.alphaValue = 0
         panel.panel.ignoresMouseEvents = true
