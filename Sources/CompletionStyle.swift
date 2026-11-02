@@ -2,8 +2,9 @@ import AppKit
 import QuartzCore
 
 final class CompletionGlass: NSVisualEffectView {
-    static let percentages = Array(stride(from: 10, through: 100, by: 10))
+    static let percentages = Array(stride(from: 0, through: 100, by: 10))
     static func percentage(in preferences: UserDefaults) -> Int {
+        guard preferences.object(forKey: "backgroundTransparencyPercent") != nil else { return 70 }
         let value = preferences.integer(forKey: "backgroundTransparencyPercent")
         return percentages.contains(value) ? value : 70
     }
@@ -14,7 +15,7 @@ final class CompletionGlass: NSVisualEffectView {
         self.material = material
         blendingMode = .behindWindow
         state = .active
-        // Keep native blur at full strength; use AppKit's material mask for corners.
+        // Use AppKit's material mask for rounded corners.
         let radius: CGFloat = 14
         let mask = NSImage(size: NSSize(width: radius * 2 + 1, height: radius * 2 + 1), flipped: false) { rect in
             NSColor.white.setFill()
@@ -31,8 +32,12 @@ final class CompletionGlass: NSVisualEffectView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func setTransparency(_ percentage: Int) {
-        // Adjust a tint above the blur, never the effect or whole-window opacity.
-        tint.fillOpacity = 1 - CGFloat(percentage) / 100
+        // The native material adds its own fixed tint. Fade the entire backdrop,
+        // not just our overlay, so 100% really removes the background.
+        // Foreground controls are siblings of this view and keep their opacity.
+        let opacity = 1 - CGFloat(percentage) / 100
+        alphaValue = opacity
+        tint.fillOpacity = opacity
     }
 }
 

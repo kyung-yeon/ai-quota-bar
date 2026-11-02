@@ -22,34 +22,39 @@ import AppKit
     let pages = groups[0].submenu!.items[0]
     try expect(pages.title == L10n.text("페이지 개수", "Rows per page") && pages.submenu!.items.filter { $0.action != nil }.map(\.tag) == [1, 2, 3, 5, 10, 15, 20], "Page-size list includes useful small capacities below Floating panel settings")
     try expect(pages.submenu!.items.filter { $0.state == .on }.map(\.tag) == [15] && groups[1].submenu!.items[0].state == .on, "Selected page size and transparency use checkmarks")
-    try expect(groups[1].submenu!.items.filter { $0.tag > 0 }.map(\.tag) == Array(stride(from: 10, through: 100, by: 10)),
-        "Transparency offers every ten-percent level from 10 through 100")
+    let percentageAction = #selector(TransparencyMenuFixture.setPercentage(_:))
+    try expect(groups[1].submenu!.items.filter { $0.action == percentageAction }.map(\.tag) == Array(stride(from: 0, through: 100, by: 10)),
+        "Transparency offers every ten-percent level from 0 through 100")
+    panel.setTransparencyPercent(0)
+    try expect(panel.transparencyPercent == 0, "Zero percent is a saved opaque endpoint, not the default value")
+    try expect(CompletionPanel(preferences: preferences).transparencyPercent == 0, "Zero percent stays opaque after relaunch")
+    preferences.removeObject(forKey: "backgroundTransparencyPercent")
     panel.setTransparency(true)
     let effect = all(panel.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && panel.panel.alphaValue == 0, "Transparency uses background vibrancy without fading the whole window")
-    try expect(effect.alphaValue == 1 && effect.maskImage != nil && effect.layer?.masksToBounds != true,
-        "Floating and usage windows use the same full-strength frosted material behavior")
+    try expect(effect.maskImage == nil && effect.layer?.masksToBounds != true,
+        "The floating backdrop fills the native window instead of drawing an inset rounded window")
     let usage = StatusMenuPanel(preferences: preferences, reduceTransparency: { reduce })
     let usageEffect = all(usage.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     let tints = [effect, usageEffect].map { all($0).first { $0.identifier?.rawValue == "glass-tint" } as! CompletionSurface }
     try expect(panel.transparencyPercent == 70, "Existing transparency users without a percentage get the default 70 percent")
     target.select = { panel.setTransparencyPercent($0); usage.updateAppearance() }
-    for item in groups[1].submenu!.items where item.tag > 0 {
+    for item in groups[1].submenu!.items where item.action == percentageAction {
         panel.setTransparency(false)
         NSApp.sendAction(item.action!, to: item.target, from: item)
         try expect(panel.translucent && panel.transparencyPercent == item.tag && !usageEffect.isHidden,
             "Choosing \(item.tag) percent enables and saves the shared transparency setting")
         try expect(tints.allSatisfy { abs($0.fillOpacity - (1 - CGFloat(item.tag) / 100)) < 0.001 }
-            && [effect, usageEffect].allSatisfy { $0.alphaValue == 1 },
-            "\(item.tag) percent adjusts both window tints without weakening blur or foreground content")
+            && [effect, usageEffect].allSatisfy { abs($0.alphaValue - (1 - CGFloat(item.tag) / 100)) < 0.001 },
+            "\(item.tag) percent changes both complete backdrops, including the native material")
         let updated = PanelSettingsMenu.make(pageSize: 15, translucent: panel.translucent, transparencyPercent: panel.transparencyPercent,
             target: target, pageAction: #selector(NSObject.description), transparencyAction: #selector(NSObject.description),
             percentageAction: #selector(TransparencyMenuFixture.setPercentage(_:)))
-        try expect(updated.submenu!.items[1].submenu!.items.filter { $0.tag > 0 && $0.state == .on }.map(\.tag) == [item.tag],
+        try expect(updated.submenu!.items[1].submenu!.items.filter { $0.action == percentageAction && $0.state == .on }.map(\.tag) == [item.tag],
             "Reopening the settings marks only the selected percentage")
     }
     panel.setTransparencyPercent(40)
-    for invalid in [0, 15, 110] { panel.setTransparencyPercent(invalid) }
+    for invalid in [-10, 15, 110] { panel.setTransparencyPercent(invalid) }
     try expect(panel.transparencyPercent == 40, "Invalid percentage values cannot overwrite the saved choice")
     let restored = CompletionPanel(preferences: preferences)
     try expect(restored.translucent && restored.transparencyPercent == 40, "Transparency and percentage persist across panel instances")
@@ -65,12 +70,24 @@ import AppKit
     panel.setTransparency(false)
     let event = CompletionEvent(id: "one", providerID: "codex", sessionID: "one", project: "Sample", directory: "/sample", sessionName: "One", completedAt: Date(), destination: SessionDestination(host: .orca, target: "term_one"))
     var row = SessionRow(event: event, isOpen: true)
-    var sent: [(String, String)] = [], complete: ((Result<String, Error>) -> Void)?
-    panel.onSend = { row, text, done in sent.append((row.id, text)); complete = done }
+    var sent: [(String, String, PromptSubmission)] = [], complete: ((Result<String, Error>) -> Void)?
+    panel.onSend = { row, text, mode, done in sent.append((row.id, text, mode)); complete = done }
     panel.showSessions([row], animateNew: false)
     panel.panel.contentView?.layoutSubtreeIfNeeded()
     let input = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
+    for percent in [0, 100, 70] {
+        panel.setTransparencyPercent(percent)
+        let surfaces = all(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.flatMap { all($0).compactMap { $0 as? CompletionSurface } }
+        try expect(!surfaces.isEmpty && surfaces.allSatisfy { abs($0.fillOpacity - (1 - CGFloat(percent) / 100)) < 0.001 }
+            && input.alphaValue == 1 && input.editor.alphaValue == 1,
+            "Session card backgrounds follow \(percent) percent while editors stay legible")
+    }
     try expect(panel.panel.firstResponder !== input.editor, "Showing the panel never automatically focuses an input or pauses polling")
+    let placeholderPoint = input.convert(NSPoint(x: 20, y: 14), to: panel.panel.contentView!)
+    try expect(panel.panel.contentView!.hitTest(placeholderPoint) === input.editor,
+        "Clicking the empty input placeholder reaches the actual text editor")
+    try expect(input.editor.acceptsFirstMouse(for: nil) && input.editor.needsPanelToBecomeKey && !input.editor.mouseDownCanMoveWindow,
+        "Input accepts the first click and does not drag the floating window")
     input.editor.string = "한국어 요청\n후속 작업"
     input.textDidChange(Notification(name: NSText.didChangeNotification))
     try expect(input.sendButton.isEnabled && input.editor.isEditable, "Idle Orca session accepts a multiline draft")
@@ -78,7 +95,7 @@ import AppKit
     try expect(panel.panel.firstResponder === input.editor, "Nonactivating panel can focus its text editor")
     row.activity = .running
     panel.showSessions([row], animateNew: false)
-    try expect(panel.panel.firstResponder === input.editor && input.draft == "한국어 요청\n후속 작업" && !input.sendButton.isEnabled, "Polling preserves editor focus and text while disabling send for running work")
+    try expect(panel.panel.firstResponder === input.editor && input.draft == "한국어 요청\n후속 작업" && input.sendButton.isEnabled, "Polling preserves editor focus and text while allowing send for running work")
     panel.panel.makeFirstResponder(nil)
     row.activity = .idle; panel.showSessions([row], animateNew: false)
     let retained = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!
@@ -89,6 +106,11 @@ import AppKit
     input.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
     _ = input.editor.performKeyEquivalent(with: submitKey)
     try expect(sent.isEmpty, "Send does not submit an unfinished IME composition")
+    key(36, "\r")
+    try expect(sent.isEmpty, "Plain Enter commits marked text without sending the request")
+    input.editor.setMarkedText("글", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(48, "\t")
+    try expect(sent.isEmpty, "Tab during IME composition never queues an unfinished request")
     input.editor.unmarkText()
     _ = input.editor.performKeyEquivalent(with: submitKey)
     input.submit()
@@ -99,6 +121,37 @@ import AppKit
     checked.performClick(nil)
     input.submit(); complete?(.success("Delivered"))
     try expect(input.draft.isEmpty && !input.sending, "Confirmed delivery clears only the submitted draft")
+    row.activity = .running; input.update(row)
+    panel.panel.makeFirstResponder(input.editor)
+    func key(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = []) {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+            windowNumber: panel.panel.windowNumber, context: nil, characters: characters,
+            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+        input.editor.keyDown(with: event)
+    }
+    input.editor.insertText("작업 중 요청", replacementRange: NSRange(location: NSNotFound, length: 0))
+    let beforeNewline = sent.count
+    key(36, "\r", flags: .shift)
+    try expect(input.draft == "작업 중 요청\n" && sent.count == beforeNewline,
+        "Shift Enter inserts a newline without sending while work is running")
+    input.editor.insertText("두 번째 줄", replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(36, "\r")
+    try expect(sent.last?.1 == "작업 중 요청\n두 번째 줄" && sent.last?.2 == .send && input.sending,
+        "Plain Enter submits the complete multiline request during running work")
+    complete?(.success("Delivered"))
+    input.editor.insertText("다음 작업", replacementRange: NSRange(location: NSNotFound, length: 0))
+    key(48, "\t")
+    try expect(sent.last?.1 == "다음 작업" && sent.last?.2 == .queue && input.sending,
+        "Tab queues the focused session's draft instead of inserting a tab or moving focus")
+    complete?(.success("Queue input delivered"))
+    try expect(input.draft.isEmpty, "A delivered queue request clears its draft")
+    row.activity = .unknown; input.update(row)
+    input.editor.insertText("Keep until ready", replacementRange: NSRange(location: NSNotFound, length: 0))
+    let beforeUnknown = sent.count
+    key(36, "\r"); key(48, "\t")
+    try expect(sent.count == beforeUnknown && input.draft == "Keep until ready", "Unknown status preserves typing but blocks both send and queue")
+    row.activity = .idle; input.update(row)
+    panel.panel.makeFirstResponder(nil)
     input.editor.string = "Keep across pages"; input.textDidChange(Notification(name: NSText.didChangeNotification))
     let rows: [SessionRow] = (0..<7).map { index in
         var item = row

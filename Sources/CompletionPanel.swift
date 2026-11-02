@@ -26,8 +26,9 @@ private final class CompletionHeader: NSStackView {
 
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
-    private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
+    private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 0, border: false)
     private let effect = CompletionGlass(material: .hudWindow)
+    private let resizeHandle = SessionResizeHandle()
     var translucent: Bool { preferences.bool(forKey: "floatingTransparency") }
     var transparencyPercent: Int { CompletionGlass.percentage(in: preferences) }
     private let reduceTransparency: () -> Bool
@@ -40,7 +41,7 @@ private final class CompletionHeader: NSStackView {
     private var displayedRows: [SessionRow] = []
     private var pendingRows: [SessionRow]?
     private var composers: [String: SessionComposer] = [:]
-    var onSend: ((SessionRow, String, @escaping (Result<String, Error>) -> Void) -> Void)?
+    var onSend: ((SessionRow, String, PromptSubmission, @escaping (Result<String, Error>) -> Void) -> Void)?
     private var editingComposer: SessionComposer? { composers.values.first(where: \.isEditing) }
     private var pageIndex = 0
     private var pageSize = 10
@@ -51,11 +52,12 @@ private final class CompletionHeader: NSStackView {
     }
     private let heading = CompletionCard.label("", size: 13)
     private let badge = CompletionCard.label("", size: 12)
+    private let badgeContainer = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
     private var reminder: Timer?
     private let reminderKey = "unreadReminder"
-    var activeReminder: CAAnimation? { chrome.layer?.animation(forKey: reminderKey) }
+    var activeReminder: CAAnimation? { badgeContainer.layer?.animation(forKey: reminderKey) }
     private var observers: [NSObjectProtocol] = []
     private var count = 0
     private let visibleFrames: () -> [NSRect]
@@ -63,10 +65,14 @@ private final class CompletionHeader: NSStackView {
     private var isCollapsed: Bool
     private let reduceMotion: () -> Bool
     private var positioning = true
-    static let windowInset: CGFloat = 24
+    private var liveResize = false
+    private var userContentSize: NSSize?
+    private var expandedContentSize: NSSize?
+    private var minimumHeight: NSLayoutConstraint!
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
     var onClose: (() -> Void)?
+    var onMinimizeChanged: (() -> Void)?
 
     init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
          preferences: UserDefaults = .standard,
@@ -77,11 +83,17 @@ private final class CompletionHeader: NSStackView {
         self.isCollapsed = preferences.bool(forKey: "sessionPanelCollapsed")
         self.reduceMotion = reduceMotion
         self.reduceTransparency = reduceTransparency
+        if let size = preferences.array(forKey: "sessionPanelContentSize") as? [Double], size.count == 2,
+           size.allSatisfy({ $0.isFinite && $0 > 0 && $0 < 100_000 }) {
+            userContentSize = NSSize(width: size[0], height: size[1])
+        }
         panel = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         panel.delegate = self
-        panel.title = L10n.text("AiQuotaBar 완료 알림", "AiQuotaBar completions")
+        panel.title = "AiQuotaBar"
+        panel.titleVisibility = .visible
+        panel.titlebarAppearsTransparent = false
         panel.isOpaque = false; panel.backgroundColor = .clear
         panel.isMovableByWindowBackground = true
         panel.isFloatingPanel = true; panel.level = .statusBar; panel.hidesOnDeactivate = false
@@ -89,7 +101,18 @@ private final class CompletionHeader: NSStackView {
         panel.becomesKeyOnlyIfNeeded = true; panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
-        panel.setFrameAutosaveName("CompletionPanel")
+        if let saved = preferences.string(forKey: "sessionPanelFrame") {
+            let frame = NSRectFromString(saved)
+            if [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite), frame.width > 0, frame.height > 0 {
+                panel.setFrame(frame, display: false)
+            }
+        } else if preferences === UserDefaults.standard {
+            // Import the former borderless window's position once; test suites
+            // and future saves use their own preferences instead of a global name.
+            _ = panel.setFrameUsingName("CompletionPanel")
+        }
+        panel.standardWindowButton(.zoomButton)?.target = self
+        panel.standardWindowButton(.zoomButton)?.action = #selector(zoomWindow)
         let canvas = NSView()
         canvas.wantsLayer = true
         panel.contentView = canvas
@@ -99,14 +122,10 @@ private final class CompletionHeader: NSStackView {
         badge.font = .systemFont(ofSize: 11, weight: .semibold)
         badge.alignment = .center
         badge.translatesAutoresizingMaskIntoConstraints = false
-        let pill = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
+        let pill = badgeContainer
         pill.addSubview(badge)
-        let close = CompletionButton("", symbol: "xmark", plain: true) { [weak self] in self?.onClose?() }
-        close.identifier = NSUserInterfaceItemIdentifier("completion-close")
-        close.toolTip = L10n.text("플로팅 닫기", "Close floating panel")
-        close.setAccessibilityLabel(close.toolTip!)
-        close.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        let header = CompletionHeader(views: [heading, pill, NSView(), close]); header.spacing = 8
+        let header = CompletionHeader(views: [heading, pill, NSView()]); header.spacing = 8
+        header.heightAnchor.constraint(equalToConstant: 26).isActive = true
         panel.initialFirstResponder = header
         header.identifier = NSUserInterfaceItemIdentifier("completion-header")
         header.toolTip = L10n.text("두 번 클릭하여 접기 또는 펼치기", "Double-click to collapse or expand")
@@ -118,17 +137,23 @@ private final class CompletionHeader: NSStackView {
         next.setAccessibilityLabel(L10n.text("다음 알림", "Next completions"))
         previous.perform = { [weak self] in self?.changePage(-1) }
         next.perform = { [weak self] in self?.changePage(1) }
-        [NSView(), previous, pageLabel, next, NSView()].forEach { pagination.addArrangedSubview($0) }
+        [previous, pageLabel, next].forEach { pagination.addArrangedSubview($0) }
+        pagination.distribution = .fill
+        pageLabel.alignment = .center
+        pageLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        pageLabel.lineBreakMode = .byTruncatingTail
         pagination.spacing = 12; pagination.isHidden = true
         errorLabel.font = .systemFont(ofSize: 11); errorLabel.textColor = .systemOrange
         errorLabel.maximumNumberOfLines = 3; errorLabel.isHidden = true
         list.orientation = .vertical; list.alignment = .leading; list.spacing = 6
         list.translatesAutoresizingMaskIntoConstraints = false
-        [header, list, pagination, errorLabel].forEach { stack.addArrangedSubview($0) }
+        [header, list, errorLabel].forEach { stack.addArrangedSubview($0) }
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         effect.translatesAutoresizingMaskIntoConstraints = false
         effect.identifier = NSUserInterfaceItemIdentifier("floating-transparency")
+        // The native window supplies the outer shape; no second rounded frame.
+        effect.maskImage = nil
         chrome.addSubview(effect)
         NSLayoutConstraint.activate([
             effect.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
@@ -137,22 +162,49 @@ private final class CompletionHeader: NSStackView {
             effect.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
         ])
         chrome.addSubview(stack)
+        // Keep navigation stationary even on a short or partially filled page.
+        pagination.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(pagination)
+        resizeHandle.translatesAutoresizingMaskIntoConstraints = false
+        canvas.addSubview(resizeHandle)
+        resizeHandle.onBegin = { [weak self] in
+            guard let self else { return }
+            self.windowWillStartLiveResize(Notification(name: NSWindow.willStartLiveResizeNotification, object: self.panel))
+        }
+        resizeHandle.onResize = { [weak self] proposed in
+            guard let self else { return }
+            let size = self.windowWillResize(self.panel, to: proposed.size)
+            self.panel.setFrame(NSRect(x: proposed.minX, y: proposed.maxY - size.height, width: size.width, height: size.height), display: true)
+        }
+        resizeHandle.onEnd = { [weak self] in
+            guard let self else { return }
+            self.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: self.panel))
+        }
         updateTransparency()
+        minimumHeight = canvas.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
         NSLayoutConstraint.activate([
-            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.windowInset),
-            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.windowInset),
-            chrome.topAnchor.constraint(equalTo: canvas.topAnchor, constant: Self.windowInset),
-            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -Self.windowInset),
+            canvas.widthAnchor.constraint(greaterThanOrEqualToConstant: 380), minimumHeight,
+            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: canvas.topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            resizeHandle.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            resizeHandle.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            resizeHandle.widthAnchor.constraint(equalToConstant: 18),
+            resizeHandle.heightAnchor.constraint(equalToConstant: 18),
             stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -10),
             pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 24), pill.heightAnchor.constraint(equalToConstant: 20),
             pill.widthAnchor.constraint(equalTo: badge.widthAnchor, constant: 12),
             badge.centerXAnchor.constraint(equalTo: pill.centerXAnchor), badge.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pagination.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pagination.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+            pagination.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -20),
+            previous.widthAnchor.constraint(equalToConstant: 26),
+            next.widthAnchor.constraint(equalToConstant: 26),
             errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -163,7 +215,7 @@ private final class CompletionHeader: NSStackView {
                 guard let self else { return }
                 if self.reduceMotion() {
                     self.stopRowMotion()
-                    self.chrome.layer?.removeAnimation(forKey: self.reminderKey)
+                    self.badgeContainer.layer?.removeAnimation(forKey: self.reminderKey)
                 }
                 self.updateTransparency()
                 self.updateActivityMotion()
@@ -172,7 +224,7 @@ private final class CompletionHeader: NSStackView {
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    if self?.panel.isVisible == true { self?.panel.orderFrontRegardless() }
+                    if self?.panel.isVisible == true { self?.present() }
                 }
             })
         }
@@ -195,6 +247,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
+        if liveResize { pendingRows = rows; return }
         if editingComposer != nil {
             pendingRows = rows
             for composer in composers.values {
@@ -224,7 +277,7 @@ private final class CompletionHeader: NSStackView {
         badge.stringValue = "\(rows.count)"
         renderPage()
         position()
-        panel.orderFrontRegardless()
+        present()
         panel.contentView?.layoutSubtreeIfNeeded()
         updateActivityMotion()
         if animateNew, !isCollapsed, !reduceMotion() {
@@ -251,18 +304,18 @@ private final class CompletionHeader: NSStackView {
         pagination.isHidden = isCollapsed || pages.count == 1
         pageLabel.stringValue = "\(pageIndex + 1) / \(pages.count)"
         if pageSize < preferredPageSize {
-            pageLabel.stringValue += L10n.text(" · 화면에 맞춰 \(pages[pageIndex].count)개", " · \(pages[pageIndex].count) fit on screen")
+            pageLabel.stringValue += L10n.text(" · 창에 맞춰 \(pages[pageIndex].count)개", " · \(pages[pageIndex].count) fit in window")
         }
-        pageLabel.toolTip = L10n.text("페이지당 최대 \(preferredPageSize)개 · 스크롤 없이 화면에 맞춥니다.", "Up to \(preferredPageSize) rows per page · fits the screen without scrolling.")
+        pageLabel.toolTip = L10n.text("페이지당 최대 \(preferredPageSize)개 · 스크롤 없이 창 크기에 맞춥니다.", "Up to \(preferredPageSize) rows per page · fits the window without scrolling.")
         previous.isEnabled = pageIndex > 0
         next.isEnabled = pageIndex + 1 < pages.count
         for row in pages[pageIndex] {
             let composer = composers[row.id] ?? SessionComposer(row: row)
             composers[row.id] = composer
             composer.update(row)
-            composer.onSend = { [weak self] row, text, done in
+            composer.onSend = { [weak self] row, text, mode, done in
                 guard let send = self?.onSend else { done(.failure(CompletionError.unavailable)); return }
-                send(row, text, done)
+                send(row, text, mode, done)
             }
             composer.onLayoutChanged = { [weak self] in self?.position() }
             composer.onEditingEnded = { [weak self] in
@@ -273,12 +326,17 @@ private final class CompletionHeader: NSStackView {
             }
             let card = CompletionCard(row: row, composer: onSend == nil ? nil : composer, open: { [weak self] in self?.onOpen?(row.event) },
                                       acknowledge: { [weak self] in self?.onAcknowledge?(row.event.id) })
-            card.setTranslucent(translucent && !reduceTransparency())
+            card.setTransparency(translucent && !reduceTransparency() ? transparencyPercent : 0)
             addRow(card)
         }
     }
 
     private func changePage(_ offset: Int) {
+        // Once browsing starts, keep this viewport through focus changes and
+        // subsequent polling, just like a manually sized window.
+        if userContentSize == nil, !isCollapsed {
+            userContentSize = panel.contentRect(forFrameRect: panel.frame).size
+        }
         panel.makeFirstResponder(nil)
         pageIndex += offset
         renderPage()
@@ -295,13 +353,13 @@ private final class CompletionHeader: NSStackView {
         text.font = .systemFont(ofSize: 13); text.textColor = .secondaryLabelColor
         addRow(text)
         position()
-        panel.orderFrontRegardless()
+        present()
     }
 
     func showError(_ message: String?) {
         errorLabel.stringValue = message ?? ""; errorLabel.isHidden = isCollapsed || message == nil
         if panel.isVisible || message != nil { position() }
-        if message != nil && panel.isVisible { panel.orderFrontRegardless() }
+        if message != nil && panel.isVisible { present() }
     }
 
     func hide() {
@@ -310,6 +368,14 @@ private final class CompletionHeader: NSStackView {
         stopRowMotion()
         list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(false) }
         panel.orderOut(nil)
+    }
+
+    private func present() {
+        if !panel.isMiniaturized { panel.orderFrontRegardless() }
+    }
+
+    func restoreFromMiniaturized() {
+        if panel.isMiniaturized { panel.deminiaturize(nil) }
     }
 
     func setTransparency(_ enabled: Bool) {
@@ -326,7 +392,7 @@ private final class CompletionHeader: NSStackView {
         effect.isHidden = !enabled
         effect.setTransparency(transparencyPercent)
         chrome.fillOpacity = enabled ? 0 : 1
-        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTranslucent(enabled) }
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setTransparency(enabled ? transparencyPercent : 0) }
     }
 
     func setPageSize(_ value: Int) {
@@ -340,11 +406,12 @@ private final class CompletionHeader: NSStackView {
     }
 
     private func updateActivityMotion() {
-        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(panel.isVisible && !isCollapsed && !reduceMotion()) }
+        list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.setMotion(panel.isVisible && !panel.isMiniaturized && !isCollapsed && !reduceMotion()) }
     }
 
     private func toggleCollapsed() {
         panel.makeFirstResponder(nil)
+        if !isCollapsed { expandedContentSize = panel.contentRect(forFrameRect: panel.frame).size }
         isCollapsed.toggle()
         preferences.set(isCollapsed, forKey: "sessionPanelCollapsed")
         position()
@@ -360,58 +427,143 @@ private final class CompletionHeader: NSStackView {
         view.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
     }
 
+    private func tallestCardHeight(width: CGFloat) -> CGFloat {
+        let cardWidth = width - 20
+        return displayedRows.map { row -> CGFloat in
+            let header: CGFloat = row.depth > 0 ? 36 : 48
+            let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.unfocusedHeight ?? 50)
+            guard let message = row.message else { return header + input + (input > 0 ? 8 : 0) }
+            let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
+            return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14 + input
+        }.max() ?? 20
+    }
+
+    private var fixedContentHeight: CGFloat {
+        26 + 28 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
+    }
+    private var editorReserve: CGFloat { onSend == nil ? 0 : 34 }
+    private func minimumContentHeight(width: CGFloat) -> CGFloat {
+        max(120, fixedContentHeight + tallestCardHeight(width: width) + 6 + editorReserve)
+    }
+    private func screenContainingWindow() -> NSRect? {
+        let screens = visibleFrames()
+        return screens.filter { $0.intersects(panel.frame) }.max {
+            let lhs = $0.intersection(panel.frame), rhs = $1.intersection(panel.frame)
+            return lhs.width * lhs.height < rhs.width * rhs.height
+        } ?? screens.first
+    }
+
     private func position() {
         let screens = visibleFrames()
-        guard !positioning, let primary = screens.first else { return }
+        guard !positioning, !panel.isMiniaturized, let primary = screens.first else { return }
         positioning = true
         defer { positioning = false }
         stopRowMotion()
         let saved = preferences.bool(forKey: "completionPanelMoved")
         // Default to the primary display, then follow the display chosen by dragging.
-        let currentScreen = saved ? screens.filter { $0.intersects(panel.frame) }.max {
-            let lhs = $0.intersection(panel.frame), rhs = $1.intersection(panel.frame)
-            return lhs.width * lhs.height < rhs.width * rhs.height
-        } : nil
+        let currentScreen = saved ? screenContainingWindow() : nil
         let screenFrame = currentScreen ?? primary
         let visible = screenFrame.insetBy(dx: 8, dy: 8)
-        let width = min(432 + Self.windowInset * 2, visible.width)
+        let currentContent = panel.contentRect(forFrameRect: panel.frame).size
+        let titleHeight = panel.frame.height - currentContent.height
+        let maximumHeight = visible.height - titleHeight
+        let width = min(max(380, liveResize ? currentContent.width : userContentSize?.width ?? 480), visible.width)
         list.isHidden = isCollapsed
+        resizeHandle.isHidden = isCollapsed
         pagination.isHidden = isCollapsed || SessionTree.pages(displayedRows, capacity: pageSize).count == 1
         errorLabel.isHidden = isCollapsed || errorLabel.stringValue.isEmpty
+        let minHeight = isCollapsed ? 0 : min(minimumContentHeight(width: width), maximumHeight)
+        minimumHeight.constant = minHeight
+        let requestedHeight = liveResize ? currentContent.height : userContentSize?.height
+        let heightLimit = min(maximumHeight, max(minHeight, requestedHeight ?? maximumHeight))
         if count > 0 {
             // Use a stable capacity across pages, even when message lengths differ.
-            let cardWidth = width - Self.windowInset * 2 - 20
-            let tallest = displayedRows.map { row -> CGFloat in
-                let header: CGFloat = row.depth > 0 ? 36 : 48
-                let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.preferredHeight ?? 50)
-                guard let message = row.message else { return header + input + (input > 0 ? 8 : 0) }
-                let textWidth = cardWidth - CGFloat(min(row.depth, 5)) * 14 - 44
-                return header + 39 + CGFloat(SessionMessageView.tail(message, width: textWidth).lines) * 14 + input
-            }.max() ?? 48
+            let tallest = tallestCardHeight(width: width)
             // Only one editor has focus. Reserve its expansion once, not on every card.
-            let editorReserve: CGFloat = onSend == nil ? 0 : 34
-            let capacity = min(preferredPageSize, max(1, Int((visible.height - 120 - editorReserve) / (tallest + 6))))
+            let capacity = min(preferredPageSize, max(1, Int((heightLimit - fixedContentHeight - editorReserve) / (tallest + 6))))
             if editingComposer == nil, capacity != pageSize { pageSize = capacity; renderPage() }
         }
-        panel.setContentSize(NSSize(width: width, height: panel.frame.height))
+        if !liveResize, width != currentContent.width {
+            panel.setContentSize(NSSize(width: width, height: currentContent.height))
+        }
         func fitMessages() {
-            let cardWidth = width - Self.windowInset * 2 - 20
+            let cardWidth = width - 20
             list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.fitMessage(width: cardWidth) }
         }
         fitMessages()
         // Measure the actual card layout so there is no clipped content or internal scrolling.
-        var height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
-        while height > visible.height && pageSize > 1 && count > 0 && editingComposer == nil {
+        func measuredHeight() -> CGFloat {
+            ceil(stack.fittingSize.height + 28 + (pagination.isHidden ? 0 : 34))
+        }
+        var height = measuredHeight()
+        while height > heightLimit && pageSize > 1 && count > 0 && editingComposer == nil {
             pageSize -= 1
             renderPage()
             fitMessages()
-            height = ceil(stack.fittingSize.height + 18 + Self.windowInset * 2)
+            height = measuredHeight()
         }
-        height = min(height, visible.height)
+        if !isCollapsed {
+            // Automatic sizing uses the same full-page budget on every page,
+            // not the current page's shorter messages or remaining row count.
+            let automaticHeight = count > 0
+                ? fixedContentHeight + CGFloat(min(count, pageSize)) * (tallestCardHeight(width: width) + 6) + editorReserve
+                : height
+            height = max(minHeight, requestedHeight == nil ? max(height, automaticHeight) : heightLimit)
+        }
+        height = min(height, maximumHeight) + titleHeight
         let old = panel.frame
         let x = currentScreen != nil ? min(max(old.minX, visible.minX), visible.maxX - width) : visible.maxX - width
         let y = currentScreen != nil ? min(max(old.maxY - height, visible.minY), visible.maxY - height) : visible.maxY - height
-        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        let frame = NSRect(x: x, y: y, width: width, height: height)
+        // Even setting an identical frame can replace AppKit's pre-zoom frame.
+        if !liveResize, panel.frame != frame { panel.setFrame(frame, display: true) }
+        preferences.set(NSStringFromRect(panel.frame), forKey: "sessionPanelFrame")
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        liveResize = true
+        panel.makeFirstResponder(panel.initialFirstResponder)
+        stopRowMotion()
+    }
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard !positioning else { return frameSize }
+        let content = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize)).size
+        let width = max(380, content.width)
+        let height = isCollapsed ? sender.contentRect(forFrameRect: sender.frame).height
+            : max(content.height, minimumContentHeight(width: width))
+        return sender.frameRect(forContentRect: NSRect(x: 0, y: 0, width: width, height: height)).size
+    }
+    func windowDidResize(_ notification: Notification) {
+        guard !positioning, !panel.isMiniaturized else { return }
+        let content = panel.contentRect(forFrameRect: panel.frame).size
+        let height = isCollapsed ? userContentSize?.height ?? expandedContentSize?.height ?? 360 : content.height
+        userContentSize = NSSize(width: content.width, height: height)
+        preferences.set([Double(content.width), Double(height)], forKey: "sessionPanelContentSize")
+        preferences.set(true, forKey: "completionPanelMoved")
+        position()
+    }
+    func windowDidEndLiveResize(_ notification: Notification) {
+        liveResize = false
+        if let latest = pendingRows { showSessions(latest, animateNew: false) }
+        else { position() }
+    }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if let onClose { onClose() } else { hide() }
+        return false
+    }
+    @objc private func zoomWindow() {
+        if isCollapsed { toggleCollapsed() }
+        panel.makeFirstResponder(panel.initialFirstResponder)
+        panel.zoom(nil)
+    }
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
+        screenContainingWindow()?.insetBy(dx: 8, dy: 8) ?? defaultFrame
+    }
+    func windowDidMiniaturize(_ notification: Notification) {
+        stopRowMotion(); updateActivityMotion(); onMinimizeChanged?()
+    }
+    func windowDidDeminiaturize(_ notification: Notification) {
+        position(); updateActivityMotion(); onMinimizeChanged?()
     }
 
     func windowWillMove(_ notification: Notification) {
@@ -423,22 +575,21 @@ private final class CompletionHeader: NSStackView {
         panel.makeFirstResponder(panel.initialFirstResponder)
     }
     func windowDidMove(_ notification: Notification) {
-        guard !positioning, NSEvent.pressedMouseButtons != 0 else { return }
+        guard !positioning, !panel.isMiniaturized else { return }
         preferences.set(true, forKey: "completionPanelMoved")
+        preferences.set(NSStringFromRect(panel.frame), forKey: "sessionPanelFrame")
         stopRowMotion()
         // Never clamp during a drag: the window must be able to cross display edges.
     }
     private func stopRowMotion() {
         list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
-        chrome.layer?.removeAnimation(forKey: reminderKey)
+        badgeContainer.layer?.removeAnimation(forKey: reminderKey)
     }
 
     func remindUnread() {
-        guard editingComposer == nil, panel.isVisible, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
+        guard editingComposer == nil, panel.isVisible, !panel.isMiniaturized, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
               !list.arrangedSubviews.contains(where: { $0.layer?.animation(forKey: "sessionPromotion") != nil }) else { return }
-        // Leave the promotion slide unobstructed and keep tall pages within their
-        // transparent margin while reminding only about unacknowledged work.
-        let degrees = min(3, atan(20 / max(1, chrome.bounds.height)) * 180 / .pi)
-        chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size, degrees: degrees), forKey: reminderKey)
+        // Keep the real frame, resize edges, and native controls stationary.
+        badgeContainer.layer?.add(CompletionMotion.wiggle(size: badgeContainer.bounds.size), forKey: reminderKey)
     }
 }

@@ -14,9 +14,10 @@ import AppKit
     private var discovered: [LiveSession] = []
     private var discoveryUnavailable = false
     private let discover: @Sendable () throws -> [LiveSession]
-    private let sendPrompt: @Sendable (SessionRow, String) throws -> String
+    private let sendPrompt: @Sendable (SessionRow, String, PromptSubmission) throws -> String
     private let preferences: UserDefaults
     private(set) var isOpen: Bool
+    var isMinimized: Bool { panel.panel.isMiniaturized }
     var onVisibilityChanged: (() -> Void)?
     var onCountChanged: ((Int) -> Void)?
     var onConnectionChanged: (() -> Void)?
@@ -29,7 +30,7 @@ import AppKit
     func setPageSize(_ value: Int) { panel.setPageSize(value) }
 
     init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,
-         sendPrompt: @escaping @Sendable (SessionRow, String) throws -> String = { try SessionPromptSender.send($0, text: $1) },
+         sendPrompt: @escaping @Sendable (SessionRow, String, PromptSubmission) throws -> String = { try SessionPromptSender.send($0, text: $1, submission: $2) },
          discover: @escaping @Sendable () throws -> [LiveSession] = { try OrcaSessionDiscovery.read() },
          connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
         guard let executable = Bundle.main.executableURL?.path else { return [:] }
@@ -51,15 +52,16 @@ import AppKit
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onClose = { [weak self] in self?.close() }
-        panel.onSend = { [weak self] row, text, done in
+        panel.onMinimizeChanged = { [weak self] in self?.onVisibilityChanged?() }
+        panel.onSend = { [weak self] row, text, mode, done in
             guard let self, !self.discoveryUnavailable,
                   let current = self.rows.first(where: { $0.id == row.id }), current.isOpen,
-                  current.activity == .idle, current.event.destination == row.event.destination else {
+                  current.activity != .unknown, current.event.destination == row.event.destination else {
                 done(.failure(PromptSendError.notReady)); return
             }
             let send = self.sendPrompt
             Task { @MainActor in
-                let result = await Task.detached { Result { try send(current, text) } }.value
+                let result = await Task.detached { Result { try send(current, text, mode) } }.value
                 done(result)
             }
         }
@@ -80,6 +82,7 @@ import AppKit
     func show() {
         isOpen = true
         preferences.set(false, forKey: "sessionPanelHidden")
+        panel.restoreFromMiniaturized()
         panel.showSessions(rows, animateNew: false)
         onVisibilityChanged?()
     }
@@ -91,7 +94,7 @@ import AppKit
         onVisibilityChanged?()
     }
 
-    func toggle() { if isOpen { close() } else { show() } }
+    func toggle() { if isOpen && !isMinimized { close() } else { show() } }
 
     private var connectionSummary: String {
         let states = Provider.allCases.map { provider in
@@ -152,7 +155,7 @@ import AppKit
                 // Keep the last successful snapshot so recovery can detect its completion.
                 if !unavailable { self.discovered = live }
                 let newIDs = Set(current.map(\.id)).subtracting(self.events.map(\.id))
-                if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible) {
+                if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible && !self.isMinimized) {
                     self.events = current
                     self.rows = rows
                     if self.isOpen { self.panel.showSessions(rows, animateNew: !newIDs.isEmpty) }

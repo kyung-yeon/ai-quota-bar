@@ -19,7 +19,7 @@ import AppKit
     let screen = NSRect(x: 0, y: 0, width: 1728, height: 1084)
     let panel = CompletionPanel(visibleFrames: { [screen] }, preferences: prefs)
     panel.panel.alphaValue = 0; panel.panel.ignoresMouseEvents = true
-    panel.onSend = { _, _, _ in }
+    panel.onSend = { _, _, _, _ in }
     defer { panel.hide() }
     let message = SessionMessage("One\nTwo\nThree\nFour\nFive", role: .assistant)!
     let rows = (0..<25).map { index in
@@ -38,7 +38,7 @@ import AppKit
     try expect(tintCoversBackdrop(panel.panel), "Floating tint follows window resizing after page-size changes")
     try expect(cards().count >= 4 && screen.contains(panel.panel.frame), "Only one editor's expansion is reserved, so four tall rows fit the reported monitor")
     let footer = all(panel.panel.contentView!).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "completion-page-label" }!
-    try expect(footer.stringValue.contains(L10n.text("화면에 맞춰", "fit on screen")), "Footer explains when the display limits the requested page size")
+    try expect(footer.stringValue.contains(L10n.text("창에 맞춰", "fit in window")), "Footer explains when the window limits the requested page size")
     var visited = Set<String>()
     for _ in 0..<30 {
         let root = panel.panel.contentView!
@@ -70,6 +70,8 @@ import AppKit
     menu.addItem(action)
     let disabled = NSMenuItem(title: "Disabled", action: #selector(MenuActionFixture.run(_:)), keyEquivalent: "")
     disabled.target = target; disabled.isEnabled = false; menu.addItem(disabled)
+    let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+    settings.submenu = NSMenu(); menu.addItem(settings)
     let anchor = NSRect(x: 900, y: 1084, width: 180, height: 25)
     usage.show(menu: menu, anchor: anchor, visibleFrame: screen)
     let root = usage.panel.contentView!
@@ -82,14 +84,59 @@ import AppKit
     try expect(tintCoversBackdrop(usage.panel), "Usage tint covers the full material after initial layout")
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && usage.panel.alphaValue == 0,
         "The same transparency setting now affects the quota window background without fading its text")
-    // cacheDisplay does not capture WindowServer's behind-window blur. A low
-    // bitmap alpha would reward the sharp background leak this check prevents.
-    try expect(effect.alphaValue == 1 && effect.maskImage != nil && effect.layer?.masksToBounds != true,
-        "The usage backdrop keeps full-strength blur with an AppKit material mask, without a sharp transparency bypass")
+    try expect(effect.maskImage != nil && effect.layer?.masksToBounds != true,
+        "The usage backdrop uses the native rounded material mask")
+    // At the endpoints there is either a solid fill or no backdrop. Unlike blur
+    // strength, these two cases can be verified in an AppKit-rendered bitmap.
+    func backgroundAlpha(_ root: NSView, at point: NSPoint) -> CGFloat {
+        root.layoutSubtreeIfNeeded()
+        let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds)!
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        let x = Int(point.x * CGFloat(bitmap.pixelsWide) / root.bounds.width)
+        let y = Int(point.y * CGFloat(bitmap.pixelsHigh) / root.bounds.height)
+        return bitmap.colorAt(x: x, y: y)!.alphaComponent
+    }
+    for percent in [0, 100, 0] {
+        panel.setTransparencyPercent(percent); usage.updateAppearance()
+        let alpha = backgroundAlpha(usage.panel.contentView!, at: NSPoint(x: 3, y: usage.panel.contentView!.bounds.midY))
+        try expect(percent == 0 ? alpha > 0.98 : alpha < 0.02,
+            "Rendered usage background follows the \(percent) percent endpoint")
+        try expect(all(usage.panel.contentView!).compactMap { $0 as? NSTextField }.allSatisfy { $0.alphaValue == 1 },
+            "Transparency never fades quota text")
+    }
+    panel.setTransparencyPercent(70); usage.updateAppearance()
     reduce = true; usage.updateAppearance()
     try expect(effect.isHidden, "Quota window respects Reduce Transparency")
     reduce = false; usage.updateAppearance()
     try expect(screen.contains(usage.panel.frame), "Quota window fits below its status item within the current monitor")
+    let hoverRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == action.title }!
+    let enter = NSEvent.enterExitEvent(with: .mouseEntered,
+        location: hoverRow.convert(NSPoint(x: 10, y: 10), to: nil), modifierFlags: [], timestamp: 0,
+        windowNumber: usage.panel.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+    hoverRow.mouseEntered(with: enter)
+    try expect(hoverRow.isHighlighted, "Pointer entry highlights the top-level usage menu row")
+    hoverRow.updateTrackingAreas()
+    try expect(hoverRow.trackingAreas.contains { $0.options.contains([.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways]) },
+        "Visible menu rows track pointer movement even when the menu-bar app is inactive")
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        hoverRow.appearance = NSAppearance(named: appearance)
+        try expect(backgroundAlpha(hoverRow, at: NSPoint(x: hoverRow.bounds.midX, y: 3)) > 0.98,
+            "Hover paints an opaque full-row highlight in \(appearance.rawValue)")
+    }
+    hoverRow.appearance = nil
+    let settingsRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == settings.title }!
+    settingsRow.mouseEntered(with: enter)
+    try expect(settingsRow.isHighlighted && !hoverRow.isHighlighted, "Moving onto Settings highlights only that row")
+    hoverRow.mouseExited(with: enter)
+    try expect(settingsRow.isHighlighted, "A late exit from the previous row leaves the current highlight intact")
+    settingsRow.mouseExited(with: enter)
+    try expect(!settingsRow.isHighlighted, "Leaving the row removes its highlight")
+    try expect(backgroundAlpha(settingsRow, at: NSPoint(x: settingsRow.bounds.midX, y: 3)) < 0.02,
+        "Leaving a row also removes the rendered background")
+    hoverRow.mouseMoved(with: enter)
+    let disabledRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == disabled.title }!
+    disabledRow.mouseEntered(with: enter)
+    try expect(!disabledRow.isHighlighted && !hoverRow.isHighlighted, "Disabled rows never retain hover selection")
     usage.invoke(1)
     try expect(target.received == nil && usage.isVisible, "Disabled menu actions cannot run")
     usage.invoke(0)
@@ -104,6 +151,10 @@ import AppKit
     target.received = nil
     key(125); key(124)
     try expect(target.received == nil && usage.isVisible, "Right Arrow never executes a selected leaf action")
+    let keyboardRow = all(root).compactMap { $0 as? NSButton }.first { $0.title == action.title }!
+    try expect(keyboardRow.isHighlighted, "Keyboard selection uses the same row highlight")
+    settingsRow.mouseEntered(with: enter)
+    try expect(keyboardRow.isHighlighted, "Detached rows cannot change selection after a menu rebuild")
     key(15, flags: .command, characters: "r")
     try expect(target.received === action, "Command shortcuts still dispatch the original menu item")
     let before = NSMenu(); before.autoenablesItems = false

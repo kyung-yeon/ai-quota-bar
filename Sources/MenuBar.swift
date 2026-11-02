@@ -261,7 +261,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
         let info = NSMenuItem(title: L10n.text("5분마다 갱신", "Refreshes every 5 minutes") + " · " + TimeZone.autoupdatingCurrent.identifier, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
-        _ = action(completions?.isOpen == true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
+        _ = action(completions?.isOpen == true && completions?.isMinimized != true ? L10n.text("플로팅 닫기", "Close floating panel") : L10n.text("플로팅 열기", "Open floating panel"), #selector(showCompletions))
         menu.addItem(PanelSettingsMenu.make(pageSize: completions?.pageSize ?? 10,
             translucent: completions?.translucent ?? false, transparencyPercent: completions?.transparencyPercent ?? 70, target: self,
             pageAction: #selector(setCompletionPageSize(_:)), transparencyAction: #selector(toggleTransparency),

@@ -18,7 +18,44 @@ private final class StatusMenuContent: NSView {
 }
 
 private final class StatusMenuButton: NSButton {
+    var onHover: ((Bool) -> Void)?
+    var suffix = ""
+    private var hoverArea: NSTrackingArea?
+
     override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area); hoverArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseMoved(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let highlighted = isEnabled && isHighlighted
+        if highlighted {
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
+        let foreground: NSColor = !isEnabled ? .disabledControlTextColor : highlighted ? .selectedMenuItemTextColor : .labelColor
+        let textFont = font ?? .systemFont(ofSize: 13)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let textHeight = ceil(textFont.ascender - textFont.descender)
+        let y = (bounds.height - textHeight) / 2
+        let suffixWidth: CGFloat = suffix.isEmpty ? 0 : 48
+        (title as NSString).draw(in: NSRect(x: 6, y: y, width: bounds.width - 12 - suffixWidth, height: textHeight),
+            withAttributes: [.font: textFont, .foregroundColor: foreground, .paragraphStyle: paragraph])
+        if !suffix.isEmpty {
+            paragraph.alignment = .right
+            (suffix as NSString).draw(in: NSRect(x: bounds.width - 54, y: y, width: 48, height: textHeight),
+                withAttributes: [.font: textFont, .foregroundColor: highlighted || !isEnabled ? foreground : NSColor.secondaryLabelColor,
+                                 .paragraphStyle: paragraph])
+        }
+    }
 }
 
 /// Own the usage window's backdrop; leave nested menus and their actions native.
@@ -54,6 +91,7 @@ private final class StatusMenuButton: NSButton {
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.level = .popUpMenu; panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.acceptsMouseMovedEvents = true
         panel.contentView = surface
         effect.identifier = NSUserInterfaceItemIdentifier("usage-transparency")
         surface.addSubview(effect)
@@ -123,19 +161,14 @@ private final class StatusMenuButton: NSButton {
                 let button = StatusMenuButton(title: item.title, target: self, action: #selector(activate(_:)))
                 button.tag = rows.count; button.isEnabled = item.isEnabled; button.isBordered = false
                 button.alignment = .left; button.font = .systemFont(ofSize: 13)
-                button.frame = NSRect(x: 12, y: y, width: width - 24, height: 28)
+                button.frame = NSRect(x: 6, y: y, width: width - 12, height: 28)
                 button.setAccessibilityRole(.menuItem)
                 button.setAccessibilityLabel(item.title)
-                content.addSubview(button); rows.append((item, button))
-                let suffix = item.submenu != nil ? "›" : item.keyEquivalent.isEmpty ? "" : "⌘ " + item.keyEquivalent.uppercased()
-                if !suffix.isEmpty {
-                    let label = NSTextField(labelWithString: suffix)
-                    label.alignment = .right; label.font = .systemFont(ofSize: 13)
-                    label.textColor = .secondaryLabelColor
-                    label.frame = NSRect(x: button.bounds.width - 48, y: 5, width: 42, height: 18)
-                    // Add to the button so clicking the accessory still activates this row.
-                    button.addSubview(label)
+                button.onHover = { [weak self, weak button] inside in
+                    if let button { self?.hover(button, inside: inside) }
                 }
+                button.suffix = item.submenu != nil ? "›" : item.keyEquivalent.isEmpty ? "" : "⌘ " + item.keyEquivalent.uppercased()
+                content.addSubview(button); rows.append((item, button))
                 y += 28
             }
         }
@@ -161,6 +194,7 @@ private final class StatusMenuButton: NSButton {
         guard rows.indices.contains(index), rows[index].0.isEnabled else { return }
         let (item, button) = rows[index]
         if let submenu = item.submenu {
+            selected = index; highlightSelection(scrollIntoView: false)
             isTrackingSubmenu = true
             let chosen = submenu.popUp(positioning: nil, at: NSPoint(x: button.bounds.maxX, y: button.bounds.maxY), in: button)
             isTrackingSubmenu = false
@@ -192,9 +226,19 @@ private final class StatusMenuButton: NSButton {
         if [36, 76, 49].contains(event.keyCode), rows.indices.contains(selected) { invoke(selected); return true }
         return false
     }
-    private func highlightSelection() {
-        for (index, row) in rows.enumerated() { row.1.isHighlighted = index == selected }
-        if rows.indices.contains(selected) { content.scrollToVisible(rows[selected].1.frame) }
+    private func hover(_ button: NSButton, inside: Bool) {
+        // Rebuilt menus may still receive an exit event from a detached row.
+        guard isVisible, !isTrackingSubmenu, rows.indices.contains(button.tag), rows[button.tag].1 === button else { return }
+        if inside { selected = button.isEnabled ? button.tag : -1 }
+        else if selected == button.tag { selected = -1 }
+        highlightSelection(scrollIntoView: false)
+    }
+    private func highlightSelection(scrollIntoView: Bool = true) {
+        for (index, row) in rows.enumerated() {
+            row.1.isHighlighted = row.1.isEnabled && index == selected
+            row.1.needsDisplay = true
+        }
+        if scrollIntoView, rows.indices.contains(selected) { content.scrollToVisible(rows[selected].1.frame) }
     }
     func windowDidResignKey(_ notification: Notification) {
         if !isTrackingSubmenu { hide() }

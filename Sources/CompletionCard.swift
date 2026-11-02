@@ -143,9 +143,10 @@ final class CompletionCard: NSView {
         updateTime()
         setAccessibilityElement(false)
     }
-    func setTranslucent(_ enabled: Bool) {
-        surface.fillOpacity = enabled ? 0.3 : 1
-        messageView?.translucent = enabled
+    func setTransparency(_ percentage: Int) {
+        let opacity = 1 - CGFloat(percentage) / 100
+        surface.fillOpacity = opacity
+        messageView?.backgroundOpacity = 0.6 * opacity
     }
     func fitMessage(width: CGFloat) {
         var height = headerHeight
