@@ -2,7 +2,7 @@
 
 AiQuotaBar can show persistent completion cards for multiple Codex and Claude Code sessions. Cards initially appear on the macOS primary display, float above other apps across Spaces (including full-screen spaces), and remain until you choose **Dismiss**. Drag the panel's header or background to any connected display. Its position is remembered, including when new cards arrive or the app restarts. If that display is disconnected, the panel returns to the primary display.
 
-Double-click the header to collapse the list to its title and count beneath the native window controls; double-click again to expand. The top edge stays fixed, monitoring continues, and new completions do not expand it. The collapsed preference survives app restarts. Unread reminders still animate the count badge in the compact header.
+Double-click the native title bar or the **AI sessions** header to collapse the list to its title and count beneath the native window controls; double-click again to expand. The top edge stays fixed, monitoring continues, and new completions do not expand it. The collapsed preference survives app restarts. Unread reminders still animate the count badge in the compact header.
 
 Only the latest completion for each provider/session appears. A new completion updates that card and its time; previous event IDs remain stored for replay protection. Existing duplicate cards are collapsed when the app loads them. Dismissing the newest card does not reveal older completions.
 

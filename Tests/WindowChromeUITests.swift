@@ -20,6 +20,42 @@ import AppKit
     panel.panel.setFrame(NSRect(x: 80, y: 120, width: 720, height: 740), display: true)
     let root = panel.panel.contentView!
     root.layoutSubtreeIfNeeded()
+    func doubleClick(_ point: NSPoint? = nil) {
+        let window = panel.panel
+        let content = root.convert(root.bounds, to: nil)
+        let location = point ?? NSPoint(x: content.midX, y: (content.maxY + window.frame.height) / 2)
+        func event(_ type: NSEvent.EventType) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 2, pressure: 1)!
+        }
+        // Supply mouse-up even when native titlebar handling enters a tracking loop.
+        NSApp.postEvent(event(.leftMouseUp), atStart: true)
+        window.sendEvent(event(.leftMouseDown))
+        if let up = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
+            if up.window === window { window.sendEvent(up) }
+            else { NSApp.postEvent(up, atStart: true) }
+        }
+        root.layoutSubtreeIfNeeded()
+    }
+    let expanded = panel.panel.frame
+    doubleClick()
+    try expect(preferences.bool(forKey: "sessionPanelCollapsed") && panel.panel.frame.height < expanded.height,
+        "Double-clicking the native title bar collapses instead of zooming")
+    try expect(panel.panel.frame.width == expanded.width && panel.panel.frame.maxY == expanded.maxY,
+        "Titlebar collapse keeps the width and top edge fixed")
+    panel.showSessions(rows, animateNew: false)
+    try expect(preferences.bool(forKey: "sessionPanelCollapsed"), "Refresh keeps a titlebar-collapsed window collapsed")
+    doubleClick()
+    try expect(!preferences.bool(forKey: "sessionPanelCollapsed") && panel.panel.frame == expanded,
+        "Double-clicking the native title bar again restores the previous size")
+    var closeClicked = false
+    panel.onClose = { closeClicked = true }
+    let close = panel.panel.standardWindowButton(.closeButton)!
+    doubleClick(close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: nil))
+    try expect(closeClicked && !preferences.bool(forKey: "sessionPanelCollapsed"),
+        "Double-clicking a native window button keeps its action instead of collapsing")
+    panel.onClose = nil
     let grip = all(root).compactMap { $0 as? SessionResizeHandle }.first!
     let hitPoint = grip.convert(NSPoint(x: grip.bounds.midX, y: grip.bounds.midY), to: root)
     try expect(root.hitTest(hitPoint) === grip && grip.acceptsFirstMouse(for: nil) && !grip.mouseDownCanMoveWindow,
