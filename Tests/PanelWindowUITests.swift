@@ -27,6 +27,12 @@ import AppKit
     for index in 0..<3 { mixed[index].message = nil }
     panel.setPageSize(3)
     panel.showSessions(mixed, animateNew: false)
+    let backdrop = all(panel.panel.contentView!).first { $0.identifier?.rawValue == "floating-transparency" }!
+    panel.panel.contentView?.layoutSubtreeIfNeeded()
+    try expect(backdrop.convert(backdrop.bounds, to: panel.panel.contentView!) == panel.panel.contentView!.bounds,
+        "The visible window surface reaches the actual resize edges without an invisible margin")
+    try expect(!panel.panel.titlebarAppearsTransparent && panel.panel.titleVisibility == .visible,
+        "Traffic-light controls sit on a visible native title bar")
     let automaticFrame = panel.panel.frame
     func pageButton(_ direction: String) -> NSButton {
         all(panel.panel.contentView!).compactMap { $0 as? NSButton }.first {
@@ -69,7 +75,7 @@ import AppKit
     pageButton("next").performClick(nil)
     panel.showSessions(mixed, animateNew: true)
     try expect(panel.panel.frame == automaticFrame && pagerFrame() == automaticPager,
-        "Leaving an expanded draft and polling keep the same browsing viewport")
+        "Leaving an expanded draft and polling keep the same browsing viewport: frame \(panel.panel.frame) vs \(automaticFrame), pager \(pagerFrame()) vs \(automaticPager)")
     panel.setPageSize(10)
     panel.showSessions(Array(rows.prefix(2)), animateNew: false)
     let input = all(panel.panel.contentView!).compactMap { $0 as? SessionComposer }.first!

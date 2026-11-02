@@ -32,8 +32,8 @@ import AppKit
     panel.setTransparency(true)
     let effect = all(panel.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     try expect(!effect.isHidden && effect.blendingMode == .behindWindow && panel.panel.alphaValue == 0, "Transparency uses background vibrancy without fading the whole window")
-    try expect(effect.maskImage != nil && effect.layer?.masksToBounds != true,
-        "Floating and usage windows keep the native rounded backdrop mask")
+    try expect(effect.maskImage == nil && effect.layer?.masksToBounds != true,
+        "The floating backdrop fills the native window instead of drawing an inset rounded window")
     let usage = StatusMenuPanel(preferences: preferences, reduceTransparency: { reduce })
     let usageEffect = all(usage.panel.contentView!).compactMap { $0 as? NSVisualEffectView }.first!
     let tints = [effect, usageEffect].map { all($0).first { $0.identifier?.rawValue == "glass-tint" } as! CompletionSurface }

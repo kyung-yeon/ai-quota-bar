@@ -26,8 +26,9 @@ private final class CompletionHeader: NSStackView {
 
 @MainActor final class CompletionPanel: NSObject, NSWindowDelegate {
     let panel: NSPanel
-    private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 14)
+    private let chrome = CompletionSurface(fill: CompletionColors.background, radius: 0, border: false)
     private let effect = CompletionGlass(material: .hudWindow)
+    private let resizeHandle = SessionResizeHandle()
     var translucent: Bool { preferences.bool(forKey: "floatingTransparency") }
     var transparencyPercent: Int { CompletionGlass.percentage(in: preferences) }
     private let reduceTransparency: () -> Bool
@@ -51,11 +52,12 @@ private final class CompletionHeader: NSStackView {
     }
     private let heading = CompletionCard.label("", size: 13)
     private let badge = CompletionCard.label("", size: 12)
+    private let badgeContainer = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
     private var reminder: Timer?
     private let reminderKey = "unreadReminder"
-    var activeReminder: CAAnimation? { chrome.layer?.animation(forKey: reminderKey) }
+    var activeReminder: CAAnimation? { badgeContainer.layer?.animation(forKey: reminderKey) }
     private var observers: [NSObjectProtocol] = []
     private var count = 0
     private let visibleFrames: () -> [NSRect]
@@ -67,7 +69,6 @@ private final class CompletionHeader: NSStackView {
     private var userContentSize: NSSize?
     private var expandedContentSize: NSSize?
     private var minimumHeight: NSLayoutConstraint!
-    static let windowInset: CGFloat = 24
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
     var onClose: (() -> Void)?
@@ -90,9 +91,9 @@ private final class CompletionHeader: NSStackView {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         panel.delegate = self
-        panel.title = L10n.text("AiQuotaBar AI 세션", "AiQuotaBar AI sessions")
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
+        panel.title = "AiQuotaBar"
+        panel.titleVisibility = .visible
+        panel.titlebarAppearsTransparent = false
         panel.isOpaque = false; panel.backgroundColor = .clear
         panel.isMovableByWindowBackground = true
         panel.isFloatingPanel = true; panel.level = .statusBar; panel.hidesOnDeactivate = false
@@ -121,7 +122,7 @@ private final class CompletionHeader: NSStackView {
         badge.font = .systemFont(ofSize: 11, weight: .semibold)
         badge.alignment = .center
         badge.translatesAutoresizingMaskIntoConstraints = false
-        let pill = CompletionSurface(fill: CompletionColors.card, radius: 10, border: false)
+        let pill = badgeContainer
         pill.addSubview(badge)
         let header = CompletionHeader(views: [heading, pill, NSView()]); header.spacing = 8
         header.heightAnchor.constraint(equalToConstant: 26).isActive = true
@@ -151,6 +152,8 @@ private final class CompletionHeader: NSStackView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         effect.translatesAutoresizingMaskIntoConstraints = false
         effect.identifier = NSUserInterfaceItemIdentifier("floating-transparency")
+        // The native window supplies the outer shape; no second rounded frame.
+        effect.maskImage = nil
         chrome.addSubview(effect)
         NSLayoutConstraint.activate([
             effect.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
@@ -162,14 +165,33 @@ private final class CompletionHeader: NSStackView {
         // Keep navigation stationary even on a short or partially filled page.
         pagination.translatesAutoresizingMaskIntoConstraints = false
         chrome.addSubview(pagination)
+        resizeHandle.translatesAutoresizingMaskIntoConstraints = false
+        canvas.addSubview(resizeHandle)
+        resizeHandle.onBegin = { [weak self] in
+            guard let self else { return }
+            self.windowWillStartLiveResize(Notification(name: NSWindow.willStartLiveResizeNotification, object: self.panel))
+        }
+        resizeHandle.onResize = { [weak self] proposed in
+            guard let self else { return }
+            let size = self.windowWillResize(self.panel, to: proposed.size)
+            self.panel.setFrame(NSRect(x: proposed.minX, y: proposed.maxY - size.height, width: size.width, height: size.height), display: true)
+        }
+        resizeHandle.onEnd = { [weak self] in
+            guard let self else { return }
+            self.windowDidEndLiveResize(Notification(name: NSWindow.didEndLiveResizeNotification, object: self.panel))
+        }
         updateTransparency()
         minimumHeight = canvas.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
         NSLayoutConstraint.activate([
             canvas.widthAnchor.constraint(greaterThanOrEqualToConstant: 380), minimumHeight,
-            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: Self.windowInset),
-            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -Self.windowInset),
-            chrome.topAnchor.constraint(equalTo: canvas.topAnchor, constant: Self.windowInset),
-            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -Self.windowInset),
+            chrome.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: canvas.topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            resizeHandle.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            resizeHandle.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            resizeHandle.widthAnchor.constraint(equalToConstant: 18),
+            resizeHandle.heightAnchor.constraint(equalToConstant: 18),
             stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 8),
@@ -180,7 +202,7 @@ private final class CompletionHeader: NSStackView {
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pagination.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pagination.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
-            pagination.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -10),
+            pagination.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -20),
             previous.widthAnchor.constraint(equalToConstant: 26),
             next.widthAnchor.constraint(equalToConstant: 26),
             errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
@@ -193,7 +215,7 @@ private final class CompletionHeader: NSStackView {
                 guard let self else { return }
                 if self.reduceMotion() {
                     self.stopRowMotion()
-                    self.chrome.layer?.removeAnimation(forKey: self.reminderKey)
+                    self.badgeContainer.layer?.removeAnimation(forKey: self.reminderKey)
                 }
                 self.updateTransparency()
                 self.updateActivityMotion()
@@ -406,7 +428,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     private func tallestCardHeight(width: CGFloat) -> CGFloat {
-        let cardWidth = width - Self.windowInset * 2 - 20
+        let cardWidth = width - 20
         return displayedRows.map { row -> CGFloat in
             let header: CGFloat = row.depth > 0 ? 36 : 48
             let input: CGFloat = onSend == nil ? 0 : 4 + (composers[row.id]?.unfocusedHeight ?? 50)
@@ -417,7 +439,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     private var fixedContentHeight: CGFloat {
-        26 + 18 + Self.windowInset * 2 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
+        26 + 28 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
     }
     private var editorReserve: CGFloat { onSend == nil ? 0 : 34 }
     private func minimumContentHeight(width: CGFloat) -> CGFloat {
@@ -447,6 +469,7 @@ private final class CompletionHeader: NSStackView {
         let maximumHeight = visible.height - titleHeight
         let width = min(max(380, liveResize ? currentContent.width : userContentSize?.width ?? 480), visible.width)
         list.isHidden = isCollapsed
+        resizeHandle.isHidden = isCollapsed
         pagination.isHidden = isCollapsed || SessionTree.pages(displayedRows, capacity: pageSize).count == 1
         errorLabel.isHidden = isCollapsed || errorLabel.stringValue.isEmpty
         let minHeight = isCollapsed ? 0 : min(minimumContentHeight(width: width), maximumHeight)
@@ -464,13 +487,13 @@ private final class CompletionHeader: NSStackView {
             panel.setContentSize(NSSize(width: width, height: currentContent.height))
         }
         func fitMessages() {
-            let cardWidth = width - Self.windowInset * 2 - 20
+            let cardWidth = width - 20
             list.arrangedSubviews.compactMap { $0 as? CompletionCard }.forEach { $0.fitMessage(width: cardWidth) }
         }
         fitMessages()
         // Measure the actual card layout so there is no clipped content or internal scrolling.
         func measuredHeight() -> CGFloat {
-            ceil(stack.fittingSize.height + 18 + Self.windowInset * 2 + (pagination.isHidden ? 0 : 34))
+            ceil(stack.fittingSize.height + 28 + (pagination.isHidden ? 0 : 34))
         }
         var height = measuredHeight()
         while height > heightLimit && pageSize > 1 && count > 0 && editingComposer == nil {
@@ -560,15 +583,13 @@ private final class CompletionHeader: NSStackView {
     }
     private func stopRowMotion() {
         list.arrangedSubviews.forEach { $0.layer?.removeAnimation(forKey: "sessionPromotion") }
-        chrome.layer?.removeAnimation(forKey: reminderKey)
+        badgeContainer.layer?.removeAnimation(forKey: reminderKey)
     }
 
     func remindUnread() {
         guard editingComposer == nil, panel.isVisible, !panel.isMiniaturized, displayedRows.contains(where: \.needsAttention), !reduceMotion(), activeReminder == nil,
               !list.arrangedSubviews.contains(where: { $0.layer?.animation(forKey: "sessionPromotion") != nil }) else { return }
-        // Leave the promotion slide unobstructed and keep tall pages within their
-        // transparent margin while reminding only about unacknowledged work.
-        let degrees = min(3, atan(20 / max(1, chrome.bounds.height)) * 180 / .pi)
-        chrome.layer?.add(CompletionMotion.wiggle(size: chrome.bounds.size, degrees: degrees), forKey: reminderKey)
+        // Keep the real frame, resize edges, and native controls stationary.
+        badgeContainer.layer?.add(CompletionMotion.wiggle(size: badgeContainer.bounds.size), forKey: reminderKey)
     }
 }
