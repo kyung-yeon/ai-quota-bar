@@ -7,6 +7,7 @@ import QuartzCore
         if !value { throw NSError(domain: "Completion UI test: \(message)", code: 1) }
         checks += 1
     }
+    try panelWindowUITests(expect)
     guard let primary = NSScreen.screens.first else { throw CompletionError.unavailable }
     var primaryFrame = primary.visibleFrame
     let secondaryFrame = NSRect(x: primaryFrame.maxX + 100, y: primaryFrame.minY, width: 1200, height: 800)
@@ -53,8 +54,8 @@ import QuartzCore
     try expect(panel.panel.isVisible && !panel.panel.hidesOnDeactivate, "Panel stays visible across app changes")
     try expect(panel.panel.level.rawValue >= NSWindow.Level.statusBar.rawValue && !panel.panel.canHide,
                "Floating inbox stays above ordinary and floating application windows")
-    try expect(!panel.panel.styleMask.contains(.titled) && !panel.panel.isOpaque,
-               "Completion uses its own transparent borderless floating window")
+    try expect(panel.panel.styleMask.contains(.titled) && !panel.panel.isOpaque,
+               "Completion keeps a transparent floating window with native window controls")
     try expect(panel.panel.collectionBehavior.contains(.fullScreenAuxiliary), "Full-screen auxiliary panel")
     try expect(primaryFrame.contains(panel.panel.frame), "Notification starts on the primary display")
     let draggedOrigin = NSPoint(x: primaryFrame.maxX + 200, y: primaryFrame.minY)
@@ -96,10 +97,13 @@ import QuartzCore
     panel.show([], animateNew: false)
     try expect(!panel.panel.isVisible, "Last confirmation hides the empty panel")
     panel.showEmpty("Waiting for a completed response")
-    try expect(panel.panel.isVisible && !panel.panel.styleMask.contains(.titled), "An empty inbox also uses the custom floating panel")
+    try expect(panel.panel.isVisible && panel.panel.styleMask.contains(.titled), "An empty inbox keeps the native floating window controls")
     panel.show([], animateNew: false)
     var reducedMotion = false
-    let animated = CompletionPanel(reduceMotion: { reducedMotion })
+    let animationPreferencesName = preferencesName + ".animation"
+    let animationPreferences = UserDefaults(suiteName: animationPreferencesName)!
+    defer { animationPreferences.removePersistentDomain(forName: animationPreferencesName) }
+    let animated = CompletionPanel(preferences: animationPreferences, reduceMotion: { reducedMotion })
     animated.panel.alphaValue = 0
     animated.panel.ignoresMouseEvents = true
     animated.show([events[0]], animateNew: true)
@@ -126,7 +130,7 @@ import QuartzCore
                        "CLAUDE_CONFIG_DIR": claudeConfig.deletingLastPathComponent().path]
     let store = CompletionStore(directory: directory)
     try store.record(events[0])
-    let controllerPanel = CompletionPanel()
+    let controllerPanel = CompletionPanel(preferences: preferences)
     controllerPanel.panel.alphaValue = 0
     controllerPanel.panel.ignoresMouseEvents = true
     let controller = CompletionController(store: store, panel: controllerPanel, preferences: preferences, discover: { [] }, connect: {
@@ -195,9 +199,16 @@ import QuartzCore
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     try expect(descendants(animated.panel.contentView!).compactMap { $0 as? SessionSpinner }.allSatisfy { !$0.isAnimating }, "Reduce Motion stops activity animation")
     animated.hide()
-    let closeButton = descendants(controllerPanel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-close" }!
+    controllerPanel.panel.performMiniaturize(nil)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    try expect(controller.isMinimized && controller.isOpen, "Minimizing keeps session monitoring open")
+    controller.toggle()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    try expect(!controller.isMinimized && controller.isOpen && controllerPanel.panel.isVisible,
+               "The menu toggle restores a minimized panel instead of closing it")
+    let closeButton = controllerPanel.panel.standardWindowButton(.closeButton)!
     closeButton.performClick(nil)
-    try expect(!controller.isOpen && !controllerPanel.panel.isVisible, "Header close hides the floating list")
+    try expect(!controller.isOpen && !controllerPanel.panel.isVisible, "Native close hides the floating list without quitting the app")
     try store.record(events[4]); waitForCount(1)
     try expect(!controllerPanel.panel.isVisible && controller.unreadCount == 1, "New completions are collected without reopening an explicitly closed panel")
     controller.toggle()
@@ -290,26 +301,26 @@ import QuartzCore
     }
     let expandedFrame = panel.panel.frame
     clickHeader(2)
-    try expect(panel.panel.frame.height <= 100 && panel.panel.frame.maxY == expandedFrame.maxY,
+    try expect(panel.panel.frame.height <= 140 && panel.panel.frame.maxY == expandedFrame.maxY,
                "Double-click collapses to just the header while keeping the top edge fixed")
     try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.allSatisfy(\.isHiddenOrHasHiddenAncestor),
                "Collapsed session cards cannot be seen or clicked")
     panel.show(Array(events.prefix(8)), animateNew: true)
     panel.showError("Example error")
-    try expect(panel.panel.frame.height <= 100, "Completions and errors cannot expand a collapsed panel")
+    try expect(panel.panel.frame.height <= 140, "Completions and errors cannot expand a collapsed panel")
     let restoredCollapse = CompletionPanel(visibleFrames: { screens }, preferences: preferences)
     restoredCollapse.panel.alphaValue = 0; restoredCollapse.panel.ignoresMouseEvents = true
     restoredCollapse.show(events, animateNew: false)
-    try expect(restoredCollapse.panel.frame.height <= 100, "Collapsed preference survives a new panel instance")
+    try expect(restoredCollapse.panel.frame.height <= 140, "Collapsed preference survives a new panel instance")
     restoredCollapse.hide()
     clickHeader(2)
-    try expect(panel.panel.frame.height > 100 && panel.panel.frame.maxY == expandedFrame.maxY,
+    try expect(panel.panel.frame.height > 140 && panel.panel.frame.maxY == expandedFrame.maxY,
                "A second double-click restores the current list below the same header")
     try expect(descendants(panel.panel.contentView!).compactMap { $0 as? CompletionCard }.count == 5,
                "Expanding retains the selected page size")
-    let closeInHeader = descendants(header!).compactMap { $0 as? NSButton }.first!
-    let buttonPoint = closeInHeader.convert(NSPoint(x: closeInHeader.bounds.midX, y: closeInHeader.bounds.midY), to: header!.superview)
-    try expect(header!.hitTest(buttonPoint) === closeInHeader, "The close button keeps its own hit target")
+    let nativeClose = panel.panel.standardWindowButton(.closeButton)!
+    try expect(nativeClose.hitTest(NSPoint(x: nativeClose.frame.midX, y: nativeClose.frame.midY)) === nativeClose,
+               "Native close keeps its own title-bar hit target")
     let planSteps: [ProgressStep] = (0..<7).map { index in
         let title = index == 4 ? L10n.text("설계 검토", "Design review") : "Step \(index + 1)"
         let status: ProgressStatus = index < 4 ? .completed : index == 4 ? .inProgress : .pending

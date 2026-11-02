@@ -38,7 +38,7 @@ import AppKit
     try expect(tintCoversBackdrop(panel.panel), "Floating tint follows window resizing after page-size changes")
     try expect(cards().count >= 4 && screen.contains(panel.panel.frame), "Only one editor's expansion is reserved, so four tall rows fit the reported monitor")
     let footer = all(panel.panel.contentView!).compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "completion-page-label" }!
-    try expect(footer.stringValue.contains(L10n.text("화면에 맞춰", "fit on screen")), "Footer explains when the display limits the requested page size")
+    try expect(footer.stringValue.contains(L10n.text("창에 맞춰", "fit in window")), "Footer explains when the window limits the requested page size")
     var visited = Set<String>()
     for _ in 0..<30 {
         let root = panel.panel.contentView!

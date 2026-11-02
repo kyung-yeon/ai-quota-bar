@@ -17,6 +17,7 @@ import AppKit
     private let sendPrompt: @Sendable (SessionRow, String) throws -> String
     private let preferences: UserDefaults
     private(set) var isOpen: Bool
+    var isMinimized: Bool { panel.panel.isMiniaturized }
     var onVisibilityChanged: (() -> Void)?
     var onCountChanged: ((Int) -> Void)?
     var onConnectionChanged: (() -> Void)?
@@ -51,6 +52,7 @@ import AppKit
         }
         panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
         panel.onClose = { [weak self] in self?.close() }
+        panel.onMinimizeChanged = { [weak self] in self?.onVisibilityChanged?() }
         panel.onSend = { [weak self] row, text, done in
             guard let self, !self.discoveryUnavailable,
                   let current = self.rows.first(where: { $0.id == row.id }), current.isOpen,
@@ -80,6 +82,7 @@ import AppKit
     func show() {
         isOpen = true
         preferences.set(false, forKey: "sessionPanelHidden")
+        panel.restoreFromMiniaturized()
         panel.showSessions(rows, animateNew: false)
         onVisibilityChanged?()
     }
@@ -91,7 +94,7 @@ import AppKit
         onVisibilityChanged?()
     }
 
-    func toggle() { if isOpen { close() } else { show() } }
+    func toggle() { if isOpen && !isMinimized { close() } else { show() } }
 
     private var connectionSummary: String {
         let states = Provider.allCases.map { provider in
@@ -152,7 +155,7 @@ import AppKit
                 // Keep the last successful snapshot so recovery can detect its completion.
                 if !unavailable { self.discovered = live }
                 let newIDs = Set(current.map(\.id)).subtracting(self.events.map(\.id))
-                if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible) {
+                if current != self.events || rows != self.rows || (self.isOpen && !self.panel.panel.isVisible && !self.isMinimized) {
                     self.events = current
                     self.rows = rows
                     if self.isOpen { self.panel.showSessions(rows, animateNew: !newIDs.isEmpty) }

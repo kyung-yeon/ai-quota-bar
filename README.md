@@ -83,7 +83,9 @@ Each card can show the last five visible lines of its latest reported response o
 
 Unread subagents keep their parent tree even after the session exits or the app restarts. Verified one-off `codex exec --ephemeral` automation is excluded from new alerts unless it has explicit native child ownership; existing alerts with unknown provenance are preserved.
 
-Use **Open floating panel / Close floating panel** in the menu bar, or the **×** button in the upper-right corner. **Settings → Floating panel settings → Rows per page** lets you choose 1, 2, 3, 5, 10 (default), 15, or 20 rows per page; the choice is saved. Tall cards may reduce the actual count, shown in the footer; previous/next controls reach the rest without scrolling. Closing keeps monitoring and unread data intact; the panel stays closed across new completions and restarts until you reopen it.
+Drag the floating window's edges or corners to resize it. Your size and position are saved across refreshes and restarts. The native top-left buttons **close**, **minimize**, and **expand/restore** the window. Closing only hides the panel; monitoring and unread data stay intact. A minimized panel stays minimized when new responses arrive; use **Open floating panel** in the menu bar to restore it.
+
+**Settings → Floating panel settings → Rows per page** lets you choose 1, 2, 3, 5, 10 (default), 15, or 20 rows per page; the choice is saved. Tall cards or a smaller window may reduce the actual count, shown in the footer; previous/next controls reach the rest without scrolling. A minimum window size keeps a full card and the page controls accessible. The panel stays closed across new completions and restarts until you reopen it.
 
 Use **Settings → Transparency → 0%–100%** to adjust both the usage popup and floating session window in 10% steps. **0% is opaque; 100% removes the window, card, and message backgrounds**, including the blur. Intermediate values blend the translucent material with the screen behind it. Text, icons, and input controls remain visible. Selecting a percentage enables transparency; **Enable transparency** turns it off or back on with the saved value (default: 70%). Settings persist across restarts; macOS **Reduce Transparency** takes precedence.
 
@@ -91,7 +93,7 @@ Each session has a follow-up input. For an idle local Orca agent, click **↑** 
 
 Notifications initially appear on the macOS primary display. Drag the header or background to any connected monitor; new alerts and app restarts preserve your chosen position. Disconnecting that monitor returns the panel to the primary display.
 
-Double-click the **AI sessions** header to collapse the panel to its title, count, and close button. Double-click again to expand it. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
+Double-click the **AI sessions** header to collapse the panel to its title and count, beneath the native window buttons. Double-click again to restore the expanded size. Monitoring continues while collapsed, and the collapsed state is remembered across new completions and app restarts.
 
 This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.
 
