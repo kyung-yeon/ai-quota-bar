@@ -7,8 +7,14 @@ private final class CompletionList: NSStackView {
 
 private final class CompletionWindow: NSPanel {
     var onTitlebarDoubleClick: (() -> Void)?
+    var usesSystemScreenConstraints = true
     private var suppressTitlebarMouseUp = false
     override var canBecomeKey: Bool { true }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // Injected screen geometry must not be clamped to the test machine's monitors.
+        usesSystemScreenConstraints ? super.constrainFrameRect(frameRect, to: screen) : frameRect
+    }
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseUp, suppressTitlebarMouseUp {
@@ -83,6 +89,8 @@ private final class CompletionHeader: NSStackView {
         return Self.pageSizeOptions.contains(value) ? value : 10
     }
     private let heading = CompletionCard.label("", size: 13)
+    private let acknowledgeAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), symbol: "checkmark", plain: true, action: {})
+    private static let headerHeight: CGFloat = 42
     private let statusSummary = SessionStatusSummary()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
@@ -102,14 +110,15 @@ private final class CompletionHeader: NSStackView {
     private var minimumHeight: NSLayoutConstraint!
     var onOpen: ((CompletionEvent) -> Void)?
     var onAcknowledge: ((String) -> Void)?
+    var onAcknowledgeAll: ((Set<String>) -> Void)? { didSet { updateAcknowledgementAction() } }
     var onClose: (() -> Void)?
     var onMinimizeChanged: (() -> Void)?
 
-    init(visibleFrames: @escaping () -> [NSRect] = { NSScreen.screens.map(\.visibleFrame) },
+    init(visibleFrames: (() -> [NSRect])? = nil,
          preferences: UserDefaults = .standard,
          reduceTransparency: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
-        self.visibleFrames = visibleFrames
+        self.visibleFrames = visibleFrames ?? { NSScreen.screens.map(\.visibleFrame) }
         self.preferences = preferences
         self.isCollapsed = preferences.bool(forKey: "sessionPanelCollapsed")
         self.reduceMotion = reduceMotion
@@ -120,6 +129,7 @@ private final class CompletionHeader: NSStackView {
         }
         let window = CompletionWindow(contentRect: NSRect(x: 0, y: 0, width: 504, height: 360),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.usesSystemScreenConstraints = visibleFrames == nil
         panel = window
         super.init()
         window.onTitlebarDoubleClick = { [weak self] in self?.toggleCollapsed() }
@@ -152,9 +162,24 @@ private final class CompletionHeader: NSStackView {
         chrome.translatesAutoresizingMaskIntoConstraints = false
         canvas.addSubview(chrome)
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
-        let header = CompletionHeader(views: [heading, NSView(), statusSummary]); header.spacing = 8
+        acknowledgeAll.identifier = NSUserInterfaceItemIdentifier("completion-dismiss-all")
+        acknowledgeAll.font = .systemFont(ofSize: 11)
+        acknowledgeAll.controlSize = .mini
+        acknowledgeAll.alignment = .left
+        acknowledgeAll.toolTip = L10n.text("모든 페이지·필터의 미확인 완료 응답을 확인합니다.", "Acknowledge unread completions across all pages and filters.")
+        acknowledgeAll.isEnabled = false
+        acknowledgeAll.perform = { [weak self] in
+            guard let self else { return }
+            let ids = Set(self.allRows.filter(\.needsAttention).map { $0.event.id })
+            guard !ids.isEmpty else { return }
+            self.panel.makeFirstResponder(self.panel.initialFirstResponder)
+            self.onAcknowledgeAll?(ids)
+        }
+        let title = NSStackView(views: [heading, acknowledgeAll])
+        title.orientation = .vertical; title.alignment = .leading; title.spacing = 2
+        let header = CompletionHeader(views: [title, NSView(), statusSummary]); header.spacing = 8
         statusSummary.onSelect = { [weak self] in self?.selectFilter($0) }
-        header.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        header.heightAnchor.constraint(equalToConstant: Self.headerHeight).isActive = true
         panel.initialFirstResponder = header
         header.identifier = NSUserInterfaceItemIdentifier("completion-header")
         header.toolTip = L10n.text("두 번 클릭하여 접기 또는 펼치기", "Double-click to collapse or expand")
@@ -266,13 +291,14 @@ private final class CompletionHeader: NSStackView {
     }
 
     func show(_ events: [CompletionEvent], animateNew: Bool) {
-        guard !events.isEmpty else { allRows = []; displayedRows = []; count = 0; hide(); return }
+        guard !events.isEmpty else { allRows = []; displayedRows = []; count = 0; updateAcknowledgementAction(); hide(); return }
         showSessions(events.map { SessionRow(event: $0) }, animateNew: animateNew)
     }
 
     func showSessions(_ rows: [SessionRow], animateNew: Bool) {
         heading.stringValue = L10n.text("AI 세션", "AI sessions")
         allRows = rows
+        updateAcknowledgementAction()
         statusSummary.update(rows, selected: selectedFilter)
         if liveResize { pendingRows = rows; return }
         if editingComposer != nil {
@@ -371,6 +397,7 @@ private final class CompletionHeader: NSStackView {
 
     func showEmpty(_ message: String) {
         allRows = []; pendingRows = nil
+        updateAcknowledgementAction()
         statusSummary.update([], selected: selectedFilter)
         showEmptyContents(message)
     }
@@ -385,6 +412,10 @@ private final class CompletionHeader: NSStackView {
         addRow(text)
         position()
         present()
+    }
+
+    private func updateAcknowledgementAction() {
+        acknowledgeAll.isEnabled = onAcknowledgeAll != nil && allRows.contains(where: \.needsAttention)
     }
 
     func showError(_ message: String?) {
@@ -483,7 +514,7 @@ private final class CompletionHeader: NSStackView {
     }
 
     private var fixedContentHeight: CGFloat {
-        26 + 28 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
+        Self.headerHeight + 28 + (count > 1 ? 34 : 0) + (errorLabel.stringValue.isEmpty ? 0 : 52)
     }
     private var editorReserve: CGFloat { onSend == nil ? 0 : 34 }
     private func minimumContentHeight(width: CGFloat) -> CGFloat {

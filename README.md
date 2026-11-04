@@ -97,6 +97,8 @@ Double-click the native **AiQuotaBar** title bar or the **AI sessions** header t
 
 Right-aligned **All n**, **Done n**, and **Working n** tags filter the list when clicked; the selected tag is highlighted. Counts always cover the full list. Filters preserve window size and drafts, and keep parent context for matching subagents. **All** restores the full list.
 
+**Dismiss all**, beneath the AI sessions title, acknowledges all currently known unread completions across every page and filter. Running sessions remain active; responses that arrive after that snapshot stay unread. The action is available while collapsed and is disabled when no unread completions remain.
+
 The header shows **Done n** for unacknowledged completions and **Working n** for open sessions currently running, across all pages and subagents. Both tags remain visible while collapsed and update during input. A session with an unread previous response and new work in progress contributes to both counts.
 
 This is a custom floating window, independent of macOS notification banners. Each card keeps a compact 48-point header, with its message preview and input below. Each card keeps the provider icon, project, session, completion time, and small action buttons. Completed rows slide upward smoothly over 0.6 seconds. The panel gives a periodic reminder only while completed responses remain unacknowledged; idle and working rows alone never trigger it. Motion respects Reduce Motion.

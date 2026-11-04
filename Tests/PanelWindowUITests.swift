@@ -99,7 +99,7 @@ import AppKit
         let root = panel.panel.contentView!; root.layoutSubtreeIfNeeded()
         let cards = all(root).compactMap { $0 as? CompletionCard }
         visited.formUnion(cards.map { $0.row.id })
-        try expect(panel.panel.frame == resized && pagerFrame() == resizedPager, "Manual window and footer positions remain fixed while paging")
+        try expect(panel.panel.frame == resized && pagerFrame() == resizedPager, "Manual window and footer positions remain fixed while paging: \(panel.panel.frame) vs \(resized), footer \(pagerFrame()) vs \(resizedPager)")
         try expect(cards.allSatisfy { root.bounds.contains($0.convert($0.bounds, to: root)) }, "Resized page cards stay inside the content area")
         let next = all(root).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }!
         try expect(root.bounds.contains(next.convert(next.bounds, to: root)), "Resized window keeps the pager reachable")

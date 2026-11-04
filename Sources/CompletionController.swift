@@ -50,7 +50,8 @@ import AppKit
                 catch { self?.panel.showError(error.localizedDescription) }
             }
         }
-        panel.onAcknowledge = { [weak self] id in self?.acknowledge(id) }
+        panel.onAcknowledge = { [weak self] id in self?.acknowledge([id]) }
+        panel.onAcknowledgeAll = { [weak self] ids in self?.acknowledge(ids) }
         panel.onClose = { [weak self] in self?.close() }
         panel.onMinimizeChanged = { [weak self] in self?.onVisibilityChanged?() }
         panel.onSend = { [weak self] row, text, mode, done in
@@ -171,10 +172,9 @@ import AppKit
         }
     }
 
-    private func acknowledge(_ id: String) {
-        if events.isEmpty { return }
+    private func acknowledge(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
         let store = self.store
-        let ids: Set<String> = [id]
         Task { @MainActor [weak self] in
             do {
                 try await Task.detached {
