@@ -26,6 +26,10 @@ final class SessionStatusSummary: NSStackView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func addAcknowledgementAction(_ button: NSButton) {
+        insertArrangedSubview(button, at: 2)
+    }
+
     func update(_ rows: [SessionRow], selected: SessionStatusFilter = .all) {
         for (filter, tag) in [(SessionStatusFilter.all, all), (.completed, completed), (.running, running)] {
             let count = rows.filter(filter.matches).count

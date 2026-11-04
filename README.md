@@ -97,7 +97,7 @@ Double-click the native **AiQuotaBar** title bar or the **AI sessions** header t
 
 Right-aligned **All n**, **Done n**, and **Working n** tags filter the list when clicked; the selected tag is highlighted. Counts always cover the full list. Filters preserve window size and drafts, and keep parent context for matching subagents. **All** restores the full list.
 
-**Dismiss all**, beneath the AI sessions title, acknowledges all currently known unread completions across every page and filter. Running sessions remain active; responses that arrive after that snapshot stay unread. The action is available while collapsed and is disabled when no unread completions remain.
+**Dismiss all**, immediately to the right of the **Done** tag, acknowledges all currently known unread completions across every page and filter. Running sessions remain active; responses that arrive after that snapshot stay unread. The action is available while collapsed and is disabled when no unread completions remain.
 
 The header shows **Done n** for unacknowledged completions and **Working n** for open sessions currently running, across all pages and subagents. Both tags remain visible while collapsed and update during input. A session with an unread previous response and new work in progress contributes to both counts.
 
