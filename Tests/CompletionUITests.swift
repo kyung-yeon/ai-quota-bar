@@ -7,6 +7,7 @@ import QuartzCore
         if !value { throw NSError(domain: "Completion UI test: \(message)", code: 1) }
         checks += 1
     }
+    try bulkAcknowledgeUITests(expect)
     try panelWindowUITests(expect)
     try windowChromeUITests(expect)
     try sessionFilterUITests(expect)
@@ -64,7 +65,7 @@ import QuartzCore
     let draggedOrigin = NSPoint(x: primaryFrame.maxX + 200, y: primaryFrame.minY)
     panel.windowWillMove(Notification(name: NSWindow.willMoveNotification, object: panel.panel))
     panel.panel.setFrameOrigin(draggedOrigin)
-    try expect(panel.panel.frame.origin == draggedOrigin, "Dragging across a display edge is not snapped back mid-drag")
+    try expect(panel.panel.frame.origin == draggedOrigin, "Dragging across a display edge is not snapped back mid-drag: \(panel.panel.frame.origin) vs \(draggedOrigin), screens \(NSScreen.screens.map(\.frame))")
     panel.show(events, animateNew: false)
     try expect(secondaryFrame.contains(panel.panel.frame), "Refreshing preserves the display chosen by dragging")
     let movedFrame = panel.panel.frame
@@ -89,7 +90,7 @@ import QuartzCore
     try expect(opened == "event-0" && dismissed == nil, "Opening the correct session does not dismiss it")
     buttons.first { $0.identifier?.rawValue == "completion-dismiss" }!.performClick(nil)
     try expect(dismissed == "event-0", "Individual confirmation identifies its own card")
-    try expect(buttons.allSatisfy { $0.title != L10n.text("모두 확인", "Dismiss all") }, "The header has no dismiss-all action")
+    try expect(buttons.contains { $0.identifier?.rawValue == "completion-dismiss-all" }, "The header includes bulk acknowledgement")
     try expect(descendants(panel.panel.contentView!).allSatisfy { !($0 is NSScrollView) }, "The floating inbox has no internal scroll view")
     let next = descendants(panel.panel.contentView!).compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == "completion-next-page" }
     try expect(next != nil && next!.isEnabled, "Overflow completions are available through page controls")
