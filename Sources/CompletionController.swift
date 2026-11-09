@@ -31,6 +31,7 @@ import AppKit
 
     init(store: CompletionStore = .standard, panel: CompletionPanel? = nil, preferences: UserDefaults = .standard,
          sendPrompt: @escaping @Sendable (SessionRow, String, PromptSubmission) throws -> String = { try SessionPromptSender.send($0, text: $1, submission: $2) },
+         openSession: @escaping @MainActor (SessionDestination) async throws -> Void = { try await SessionNavigator.open($0) },
          discover: @escaping @Sendable () throws -> [LiveSession] = { try OrcaSessionDiscovery.read() },
          connect: @escaping @Sendable () -> [Provider: HookConnectionState] = {
         guard let executable = Bundle.main.executableURL?.path else { return [:] }
@@ -46,7 +47,11 @@ import AppKit
         let panel = self.panel
         panel.onOpen = { [weak self] event in
             Task { @MainActor in
-                do { try await SessionNavigator.open(event.destination); self?.panel.showError(nil) }
+                do {
+                    try await openSession(event.destination)
+                    // A newer response may arrive during navigation; acknowledge only the clicked one.
+                    self?.acknowledge([event.id])
+                }
                 catch { self?.panel.showError(error.localizedDescription) }
             }
         }

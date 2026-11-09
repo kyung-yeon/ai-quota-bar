@@ -3,7 +3,7 @@ import AppKit
 enum SessionNavigator {
     static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
-    /// Navigation never acknowledges the alert: URL handlers cannot prove the session is visible.
+    /// Returns after the host accepts navigation; URL handlers cannot prove the pane is visible.
     @MainActor static func open(_ original: SessionDestination) async throws {
         let destination = await Task.detached { HerdrClientBinding.resolve(original, directory: CompletionStore.standard.directory) }.value
         guard destination.host != .unsupported else { throw CompletionError.unsupported }
