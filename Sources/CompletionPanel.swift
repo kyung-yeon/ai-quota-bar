@@ -89,8 +89,8 @@ private final class CompletionHeader: NSStackView {
         return Self.pageSizeOptions.contains(value) ? value : 10
     }
     private let heading = CompletionCard.label("", size: 13)
-    private let acknowledgeAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), symbol: "checkmark", plain: true, action: {})
-    private static let headerHeight: CGFloat = 42
+    private let acknowledgeAll = CompletionButton(L10n.text("모두 확인", "Dismiss all"), plain: true, action: {})
+    private static let headerHeight: CGFloat = 26
     private let statusSummary = SessionStatusSummary()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private var timeRefresh: Timer?
@@ -175,9 +175,8 @@ private final class CompletionHeader: NSStackView {
             self.panel.makeFirstResponder(self.panel.initialFirstResponder)
             self.onAcknowledgeAll?(ids)
         }
-        let title = NSStackView(views: [heading, acknowledgeAll])
-        title.orientation = .vertical; title.alignment = .leading; title.spacing = 2
-        let header = CompletionHeader(views: [title, NSView(), statusSummary]); header.spacing = 8
+        statusSummary.addAcknowledgementAction(acknowledgeAll)
+        let header = CompletionHeader(views: [heading, NSView(), statusSummary]); header.spacing = 8
         statusSummary.onSelect = { [weak self] in self?.selectFilter($0) }
         header.heightAnchor.constraint(equalToConstant: Self.headerHeight).isActive = true
         panel.initialFirstResponder = header

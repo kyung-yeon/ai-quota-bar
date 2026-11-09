@@ -7,6 +7,7 @@ import QuartzCore
         if !value { throw NSError(domain: "Completion UI test: \(message)", code: 1) }
         checks += 1
     }
+    try openAcknowledgementUITests(expect)
     try bulkAcknowledgeUITests(expect)
     try panelWindowUITests(expect)
     try windowChromeUITests(expect)
@@ -87,7 +88,7 @@ import QuartzCore
     try expect(primaryFrame.contains(panel.panel.frame), "Disconnecting the chosen display returns the panel to the primary display")
     let open = buttons.first { $0.identifier?.rawValue == "completion-open" }!
     open.performClick(nil)
-    try expect(opened == "event-0" && dismissed == nil, "Opening the correct session does not dismiss it")
+    try expect(opened == "event-0" && dismissed == nil, "Opening routes the selected event without acknowledging before navigation succeeds")
     buttons.first { $0.identifier?.rawValue == "completion-dismiss" }!.performClick(nil)
     try expect(dismissed == "event-0", "Individual confirmation identifies its own card")
     try expect(buttons.contains { $0.identifier?.rawValue == "completion-dismiss-all" }, "The header includes bulk acknowledgement")
