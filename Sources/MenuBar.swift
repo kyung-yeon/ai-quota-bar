@@ -61,7 +61,7 @@ final class ProviderCard: NSView {
         if showSnapshot, let snapshot = state.snapshot {
             let fresh = state.failure == nil && !state.stale(at: now)
             if !fresh { line(L10n.text("마지막 조회 기준", "Last known usage"), color: .secondaryLabelColor) }
-            for window in snapshot.windows.sorted(by: { ($0.windowDurationMins ?? 0) > ($1.windowDurationMins ?? 0) }) {
+            for window in (snapshot.windows + snapshot.additionalWindows).sorted(by: { ($0.windowDurationMins ?? 0) > ($1.windowDurationMins ?? 0) }) {
                 let current = fresh && !window.expired(at: now)
                 label(window.label, x: inset, y: y, width: 170, size: 12, weight: .medium)
                 let percent = L10n.text("\(window.remaining)% 남음", "\(window.remaining)% left")
