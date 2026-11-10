@@ -28,8 +28,16 @@ struct QuotaWindow: Decodable {
     let usedPercent: Double
     let windowDurationMins: Int?
     let resetsAt: Double?
+    var category: String? = nil
     var remaining: Int { usedPercent.isFinite ? Int(max(0, min(100, 100 - usedPercent)).rounded(.down)) : 0 }
     var label: String {
+        if let category {
+            switch category {
+            case "fable": return L10n.text("Fable 주간", "Fable weekly")
+            case "spark": return L10n.text("Spark", "Spark")
+            default: break
+            }
+        }
         switch windowDurationMins {
         case 10080: return L10n.text("주간", "Weekly")
         case 300: return L10n.text("5시간", "5-hour")
@@ -67,6 +75,12 @@ struct ResetCredits: Decodable {
 struct QuotaSnapshot {
     let windows: [QuotaWindow]
     let resetCredits: ResetCredits?
+    let additionalWindows: [QuotaWindow]
+    init(windows: [QuotaWindow], resetCredits: ResetCredits?, additionalWindows: [QuotaWindow] = []) {
+        self.windows = windows
+        self.resetCredits = resetCredits
+        self.additionalWindows = additionalWindows
+    }
     var weekly: QuotaWindow? { windows.first { $0.windowDurationMins == 10080 } }
     var summaryWindow: QuotaWindow? { weekly ?? windows.first }
 }
@@ -87,7 +101,14 @@ struct QuotaResponse: Decodable {
         guard let bucket, bucket.limitId == nil || bucket.limitId == "codex" else { throw ProviderFailure.noData }
         let windows = [bucket.primary, bucket.secondary].compactMap { $0 }.filter { $0.usedPercent.isFinite }
         guard !windows.isEmpty else { throw ProviderFailure.noData }
-        return QuotaSnapshot(windows: windows, resetCredits: rateLimitResetCredits)
+        let extras = (rateLimitsByLimitId ?? [:]).filter { $0.key != "codex" }.flatMap { key, bucket in
+            [bucket.primary, bucket.secondary].compactMap { window -> QuotaWindow? in
+                guard var window, window.usedPercent.isFinite else { return nil }
+                window.category = key
+                return window
+            }
+        }
+        return QuotaSnapshot(windows: windows, resetCredits: rateLimitResetCredits, additionalWindows: extras)
     }
 }
 
@@ -98,10 +119,12 @@ struct ClaudeUsage: Decodable {
     }
     let five_hour: Window?
     let seven_day: Window?
+    let seven_day_fable: Window?
 
     static func decode(_ data: Data) throws -> QuotaSnapshot {
         let usage = try JSONDecoder().decode(Self.self, from: data)
-        let windows = try [(usage.five_hour, 300), (usage.seven_day, 10080)].compactMap { window, minutes -> QuotaWindow? in
+        let windows = try [(usage.five_hour, 300, nil as String?), (usage.seven_day, 10080, nil as String?),
+                           (usage.seven_day_fable, 10080, "fable")].compactMap { window, minutes, category -> QuotaWindow? in
             guard let window, window.utilization.isFinite else { return nil }
             var reset: Double?
             if let raw = window.resets_at {
@@ -112,7 +135,7 @@ struct ClaudeUsage: Decodable {
                 guard let date = fractional ?? format.date(from: raw) else { throw ProviderFailure.connection }
                 reset = date.timeIntervalSince1970
             }
-            return QuotaWindow(usedPercent: window.utilization, windowDurationMins: minutes, resetsAt: reset)
+            return QuotaWindow(usedPercent: window.utilization, windowDurationMins: minutes, resetsAt: reset, category: category)
         }
         guard !windows.isEmpty else { throw ProviderFailure.noData }
         // Claude's usage endpoint has no verified reset-credit contract. Extra usage is paid credit, not a reset.
