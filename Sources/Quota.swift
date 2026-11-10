@@ -120,10 +120,19 @@ struct ClaudeUsage: Decodable {
     let five_hour: Window?
     let seven_day: Window?
     let seven_day_fable: Window?
+    struct ModelScope: Decodable { let display_name: String? }
+    struct Scope: Decodable { let model: ModelScope? }
+    struct ScopedLimit: Decodable {
+        let type: String?
+        let percent: Double?
+        let resets_at: String?
+        let scope: Scope?
+    }
+    let limits: [ScopedLimit]?
 
     static func decode(_ data: Data) throws -> QuotaSnapshot {
         let usage = try JSONDecoder().decode(Self.self, from: data)
-        let windows = try [(usage.five_hour, 300, nil as String?), (usage.seven_day, 10080, nil as String?),
+        var windows = try [(usage.five_hour, 300, nil as String?), (usage.seven_day, 10080, nil as String?),
                            (usage.seven_day_fable, 10080, "fable")].compactMap { window, minutes, category -> QuotaWindow? in
             guard let window, window.utilization.isFinite else { return nil }
             var reset: Double?
@@ -137,9 +146,25 @@ struct ClaudeUsage: Decodable {
             }
             return QuotaWindow(usedPercent: window.utilization, windowDurationMins: minutes, resetsAt: reset, category: category)
         }
+        for limit in usage.limits ?? [] where limit.type == "weekly_scoped" {
+            guard let model = limit.scope?.model?.display_name?.lowercased(), model.hasPrefix("fable"),
+                  let percent = limit.percent, percent.isFinite else { continue }
+            let reset = try limit.resets_at.map(parseReset)
+            windows.removeAll { $0.category == "fable" }
+            windows.append(QuotaWindow(usedPercent: percent, windowDurationMins: 10080, resetsAt: reset, category: "fable"))
+        }
         guard !windows.isEmpty else { throw ProviderFailure.noData }
         // Claude's usage endpoint has no verified reset-credit contract. Extra usage is paid credit, not a reset.
         return QuotaSnapshot(windows: windows, resetCredits: nil)
+    }
+
+    private static func parseReset(_ raw: String) throws -> Double {
+        let format = ISO8601DateFormatter()
+        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = format.date(from: raw)
+        format.formatOptions = [.withInternetDateTime]
+        guard let date = fractional ?? format.date(from: raw) else { throw ProviderFailure.connection }
+        return date.timeIntervalSince1970
     }
 }
 
