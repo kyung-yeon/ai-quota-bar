@@ -29,11 +29,12 @@ struct QuotaWindow: Decodable {
     let windowDurationMins: Int?
     let resetsAt: Double?
     var category: String? = nil
+    var modelName: String? = nil
     var remaining: Int { usedPercent.isFinite ? Int(max(0, min(100, 100 - usedPercent)).rounded(.down)) : 0 }
     var label: String {
+        if let modelName { return L10n.text("\(modelName) 주간", "\(modelName) weekly") }
         if let category {
             switch category {
-            case "fable": return L10n.text("Fable 주간", "Fable weekly")
             case "spark": return L10n.text("Spark", "Spark")
             default: break
             }
@@ -119,11 +120,10 @@ struct ClaudeUsage: Decodable {
     }
     let five_hour: Window?
     let seven_day: Window?
-    let seven_day_fable: Window?
     struct ModelScope: Decodable { let display_name: String? }
     struct Scope: Decodable { let model: ModelScope? }
     struct ScopedLimit: Decodable {
-        let type: String?
+        let kind: String?
         let percent: Double?
         let resets_at: String?
         let scope: Scope?
@@ -132,26 +132,18 @@ struct ClaudeUsage: Decodable {
 
     static func decode(_ data: Data) throws -> QuotaSnapshot {
         let usage = try JSONDecoder().decode(Self.self, from: data)
-        var windows = try [(usage.five_hour, 300, nil as String?), (usage.seven_day, 10080, nil as String?),
-                           (usage.seven_day_fable, 10080, "fable")].compactMap { window, minutes, category -> QuotaWindow? in
+        var windows = try [(usage.five_hour, 300), (usage.seven_day, 10080)].compactMap { window, minutes -> QuotaWindow? in
             guard let window, window.utilization.isFinite else { return nil }
-            var reset: Double?
-            if let raw = window.resets_at {
-                let format = ISO8601DateFormatter()
-                format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                let fractional = format.date(from: raw)
-                format.formatOptions = [.withInternetDateTime]
-                guard let date = fractional ?? format.date(from: raw) else { throw ProviderFailure.connection }
-                reset = date.timeIntervalSince1970
-            }
-            return QuotaWindow(usedPercent: window.utilization, windowDurationMins: minutes, resetsAt: reset, category: category)
+            return QuotaWindow(usedPercent: window.utilization, windowDurationMins: minutes,
+                               resetsAt: try window.resets_at.map(parseReset))
         }
-        for limit in usage.limits ?? [] where limit.type == "weekly_scoped" {
-            guard let model = limit.scope?.model?.display_name?.lowercased(), model.hasPrefix("fable"),
-                  let percent = limit.percent, percent.isFinite else { continue }
-            let reset = try limit.resets_at.map(parseReset)
-            windows.removeAll { $0.category == "fable" }
-            windows.append(QuotaWindow(usedPercent: percent, windowDurationMins: 10080, resetsAt: reset, category: "fable"))
+        // The OAuth response names scoped models here; it has no seven_day_fable field.
+        // A null model ID or is_active=false does not make the reported window unavailable.
+        for limit in usage.limits ?? [] where limit.kind == "weekly_scoped" {
+            guard let model = limit.scope?.model?.display_name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !model.isEmpty, let percent = limit.percent, percent.isFinite else { continue }
+            windows.append(QuotaWindow(usedPercent: percent, windowDurationMins: 10080,
+                                       resetsAt: try limit.resets_at.map(parseReset), modelName: model))
         }
         guard !windows.isEmpty else { throw ProviderFailure.noData }
         // Claude's usage endpoint has no verified reset-credit contract. Extra usage is paid credit, not a reset.
