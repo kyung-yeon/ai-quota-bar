@@ -166,11 +166,11 @@ private final class CompletionHeader: NSStackView {
         acknowledgeAll.font = .systemFont(ofSize: 11)
         acknowledgeAll.controlSize = .mini
         acknowledgeAll.alignment = .left
-        acknowledgeAll.toolTip = L10n.text("모든 페이지·필터의 미확인 완료 응답을 확인합니다.", "Acknowledge unread completions across all pages and filters.")
+        acknowledgeAll.toolTip = L10n.text("모든 페이지·필터의 미확인 완료 응답을 확인합니다. 작업 중인 세션은 제외합니다.", "Acknowledge unread completions across all pages and filters, excluding working sessions.")
         acknowledgeAll.isEnabled = false
         acknowledgeAll.perform = { [weak self] in
             guard let self else { return }
-            let ids = Set(self.allRows.filter(\.needsAttention).map { $0.event.id })
+            let ids = self.bulkAcknowledgementIDs
             guard !ids.isEmpty else { return }
             self.panel.makeFirstResponder(self.panel.initialFirstResponder)
             self.onAcknowledgeAll?(ids)
@@ -413,8 +413,12 @@ private final class CompletionHeader: NSStackView {
         present()
     }
 
+    private var bulkAcknowledgementIDs: Set<String> {
+        Set(allRows.filter { $0.needsAttention && $0.activity != .running }.map { $0.event.id })
+    }
+
     private func updateAcknowledgementAction() {
-        acknowledgeAll.isEnabled = onAcknowledgeAll != nil && allRows.contains(where: \.needsAttention)
+        acknowledgeAll.isEnabled = onAcknowledgeAll != nil && !bulkAcknowledgementIDs.isEmpty
     }
 
     func showError(_ message: String?) {
