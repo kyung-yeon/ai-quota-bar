@@ -51,14 +51,16 @@ enum ClaudeClient {
     }
 
     static func fetch(allowKeychainPrompt: Bool = false) async throws -> QuotaSnapshot {
-        _ = try CLIPaths.executable(for: .claude)
+        let executable = try CLIPaths.executable(for: .claude)
         let token = try accessToken(allowKeychainPrompt: allowKeychainPrompt)
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        let inventoryAgent = await inventoryUserAgent(executable: executable)
+        let usageURL = "https://api.anthropic.com/api/oauth/usage"
+        var request = URLRequest(url: URL(string: usageURL + (inventoryAgent == nil ? "" : "?cedar_ember=1"))!)
         request.timeoutInterval = 20
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("AiQuotaBar/2.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(inventoryAgent ?? "AiQuotaBar/2.0", forHTTPHeaderField: "User-Agent")
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForResource = 25
         config.httpCookieStorage = nil
@@ -66,7 +68,16 @@ enum ClaudeClient {
         let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         do {
-            let (data, response) = try await session.data(for: request)
+            var (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse, inventoryAgent != nil,
+               http.statusCode == 400 || (http.statusCode == 403 &&
+                   !(String(data: data, encoding: .utf8)?.contains("user:profile") ?? false)) {
+                // Optional inventory rejection must not hide ordinary usage. Retry only once.
+                try Task.checkCancellation()
+                request.url = URL(string: usageURL)
+                request.setValue("AiQuotaBar/2.0", forHTTPHeaderField: "User-Agent")
+                (data, response) = try await session.data(for: request)
+            }
             guard let response = response as? HTTPURLResponse else { throw ProviderFailure.connection }
             switch response.statusCode {
             case 200: return try ClaudeUsage.decode(data)
@@ -75,6 +86,17 @@ enum ClaudeClient {
             default: throw ProviderFailure.connection
             }
         } catch let error as URLError where error.code == .timedOut { throw ProviderFailure.timeout }
+    }
+
+    private static func inventoryUserAgent(executable: URL) async -> String? {
+        await Task.detached(priority: .utility) { () -> String? in
+            guard let data = try? SessionCommand.run(executable.path, ["--version"], timeout: 2, outputLimit: 1024),
+                  let output = String(data: data, encoding: .utf8),
+                  let version = output.split(whereSeparator: \.isWhitespace).first,
+                  version.range(of: #"^\d+\.\d+\.\d+$"#, options: .regularExpression) != nil else { return nil }
+            // Match the installed CLI's observed inventory surface; do not invent a version.
+            return "claude-cli/\(version) (external, cli)"
+        }.value
     }
 }
 

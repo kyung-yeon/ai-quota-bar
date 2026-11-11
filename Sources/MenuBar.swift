@@ -80,17 +80,23 @@ final class ProviderCard: NSView {
 
             if let credits = snapshot.resetCredits {
                 let current = fresh && !credits.hasExpiredDetails(at: now)
-                let title = L10n.text("초기화권 \(max(0, credits.availableCount))장", "Reset passes · \(max(0, credits.availableCount))")
+                let count = credits.displayCount(at: now)
+                let title = L10n.text("초기화권 \(count)장", "Reset passes · \(count)")
                 line(title + (current ? "" : L10n.text(" · 갱신 필요", " · refresh required")), weight: .medium)
-                if credits.availableCount > 0 {
+                if count > 0 {
                     let details = credits.availableDetails(at: now)
                     for credit in details.prefix(3) { line(creditExpiryText(credit), size: 11, color: .secondaryLabelColor) }
-                    if details.count < credits.availableCount {
+                    if details.reduce(0, { $0 + ($1.quantity ?? 1) }) < count {
                         line(L10n.text("일부 유효기간 정보 제공 안 됨", "Some expiry details unavailable"), size: 11, color: .secondaryLabelColor)
                     }
                     if details.count > 3 { line(L10n.text("아래 메뉴에서 전체 유효기간 확인", "See all expiry dates below"), size: 11, color: .secondaryLabelColor) }
                 }
-            } else { line(L10n.text("초기화권 · 정보 제공 안 됨", "Reset passes · unavailable"), size: 11, color: .secondaryLabelColor) }
+            } else {
+                let text = provider == .claude
+                    ? L10n.text("초기화권 · API 응답에 정보 없음", "Reset passes · not reported by API")
+                    : L10n.text("초기화권 · 정보 제공 안 됨", "Reset passes · unavailable")
+                line(text, size: 11, color: .secondaryLabelColor)
+            }
         } else if state.failure == nil {
             line(L10n.text("사용량을 확인하고 있습니다…", "Checking your usage…"), color: .secondaryLabelColor)
         }
@@ -120,8 +126,11 @@ final class ProviderCard: NSView {
 }
 
 func creditExpiryText(_ credit: ResetCredit) -> String {
-    credit.expiresAt.map { L10n.text("\(dateText($0, format: "yyyyMMMdjm"))까지", "Expires \(dateText($0, format: "yyyyMMMdjm"))") }
-        ?? L10n.text("유효기간 제한 없음", "No expiration")
+    let quantity = credit.quantity.map { L10n.text("\($0)장 · ", "\($0) passes · ") } ?? ""
+    return quantity + (credit.expiresAt.map { L10n.text("\(dateText($0, format: "yyyyMMMdjm"))까지", "Expires \(dateText($0, format: "yyyyMMMdjm"))") }
+        ?? (credit.resetType == "claudeRateLimits"
+            ? L10n.text("유효기간 제공 안 됨", "Expiry not provided")
+            : L10n.text("유효기간 제한 없음", "No expiration")))
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
