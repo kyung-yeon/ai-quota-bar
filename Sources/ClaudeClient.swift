@@ -4,6 +4,10 @@ import CryptoKit
 import LocalAuthentication
 
 enum ClaudeClient {
+    // The legacy Keychain interaction switch is process-wide. Every app Keychain read
+    // (including the explicit Allow action) must hold this lock while using it.
+    private static let keychainReadLock = NSLock()
+
     struct Credentials: Decodable {
         struct OAuth: Decodable {
             let accessToken: String
@@ -39,7 +43,7 @@ enum ClaudeClient {
         context.interactionNotAllowed = !allowKeychainPrompt
         query[kSecUseAuthenticationContext] = context
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = readKeychain(query as CFDictionary, allowPrompt: allowKeychainPrompt, result: &result)
         if status == errSecSuccess, let data = result as? Data {
             return try Credentials.token(from: data)
         }
@@ -48,6 +52,22 @@ enum ClaudeClient {
         if let data = try? Data(contentsOf: file) { return try Credentials.token(from: data) }
         if status != errSecItemNotFound { throw ProviderFailure.keychainLocked }
         throw ProviderFailure.authentication
+    }
+
+    private static func readKeychain(_ query: CFDictionary, allowPrompt: Bool, result: inout CFTypeRef?) -> OSStatus {
+        keychainReadLock.lock()
+        defer { keychainReadLock.unlock() }
+        if allowPrompt { return SecItemCopyMatching(query, &result) }
+
+        // LAContext gates Data Protection authentication, but not legacy login-keychain
+        // ACL dialogs. Keep the legacy API here until that store has a replacement.
+        var previous: DarwinBoolean = false
+        let readStatus = SecKeychainGetUserInteractionAllowed(&previous)
+        guard readStatus == errSecSuccess else { return readStatus }
+        let setStatus = SecKeychainSetUserInteractionAllowed(false)
+        guard setStatus == errSecSuccess else { return setStatus }
+        defer { _ = SecKeychainSetUserInteractionAllowed(previous.boolValue) }
+        return SecItemCopyMatching(query, &result)
     }
 
     static func fetch(allowKeychainPrompt: Bool = false) async throws -> QuotaSnapshot {
