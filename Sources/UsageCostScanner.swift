@@ -17,13 +17,18 @@ final class UsageCostScanner {
         scanFiles([codex.appendingPathComponent("sessions"), codex.appendingPathComponent("archived_sessions")], client: "Codex")
         let claude = root("CLAUDE_CONFIG_DIR", fallback: home.appendingPathComponent(".claude"))
         scanFiles([claude.appendingPathComponent("projects"), claude.appendingPathComponent("transcripts")], client: "Claude Code")
+        let pi = root("PI_CODING_AGENT_DIR", fallback: home.appendingPathComponent(".pi/agent"))
+        scanFiles([pi.appendingPathComponent("sessions")], client: "Pi")
         let openCode = OpenCodeCostReader(home: home, environment: environment).read()
         if openCode.incomplete { incomplete.insert("OpenCode") }
         return UsageCostSnapshot(records: Array(records.values) + openCode.records, incompleteSources: incomplete)
     }
 
     private func root(_ key: String, fallback: URL) -> URL {
-        guard let path = environment[key], path.hasPrefix("/") else { return fallback }
+        guard let configured = environment[key] else { return fallback }
+        let path = configured == "~" ? home.path : configured.hasPrefix("~/")
+            ? home.appendingPathComponent(String(configured.dropFirst(2))).path : configured
+        guard path.hasPrefix("/") else { return fallback }
         return URL(fileURLWithPath: path)
     }
 
@@ -66,7 +71,8 @@ final class UsageCostScanner {
                                 if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] {
                                     if client == "Codex" {
                                         consumeCodex(object, model: &model, provider: &provider, turn: &turn, previousTotal: &previousTotal)
-                                    } else { consumeClaude(object) }
+                                    } else if client == "Pi" { consumePi(object) }
+                                    else { consumeClaude(object) }
                                 } else { incomplete.insert(client); model = "unknown"; turn = nil }
                             }
                             line.removeAll(keepingCapacity: true); oversized = false; start = index + 1
@@ -79,6 +85,29 @@ final class UsageCostScanner {
                 } catch { incomplete.insert(client) }
             }
         }
+    }
+
+    // Pi's entry IDs survive forks; never include the containing session/file in the key.
+    // https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts
+    // https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/types.ts
+    private func consumePi(_ object: [String: Any]) {
+        let payload: [String: Any]
+        if object["type"] as? String == "usage" { payload = object }
+        else if object["type"] as? String == "message", let message = object["message"] as? [String: Any],
+                message["role"] as? String == "assistant" { payload = message }
+        else { return }
+        guard let usage = payload["usage"] as? [String: Any] else { return }
+        guard let id = usageIdentifier(object["id"]), let timestamp = usageIdentifier(object["timestamp"]) else {
+            incomplete.insert("Pi"); return
+        }
+        let provider = usageIdentifier(payload["provider"]) ?? "unknown"
+        let model = usageIdentifier(payload["responseModel"]) ?? usageIdentifier(payload["model"]) ?? "unknown"
+        let cost = usageNumber(usage["cost"] as? [String: Any] ?? [:], "total")
+        let record = UsageCostRecord(client: "Pi", provider: provider, model: model,
+            input: usageNumber(usage, "input"), output: usageNumber(usage, "output"),
+            cacheRead: usageNumber(usage, "cacheRead"), cacheWrite: usageNumber(usage, "cacheWrite"),
+            cacheWriteHour: usageNumber(usage, "cacheWrite1h"), recordedUSD: cost > 0 ? cost : nil)
+        insert(record, key: "pi:\(id):\(timestamp)")
     }
 
     private func consumeClaude(_ object: [String: Any]) {
