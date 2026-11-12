@@ -8,9 +8,14 @@
 
 - **Codex:** `$CODEX_HOME` 또는 `~/.codex` 아래 `sessions`, `archived_sessions`의 JSONL. 모델과 토큰 사용 이벤트를 읽고 반복 누계·복사된 이벤트를 중복 집계하지 않습니다. 캐시 입력과 추론 출력은 이미 포함된 토큰을 다시 더하지 않습니다. 최초 누계만 있는 기록은 기준값으로 두고, 이후 요청 경계가 없는 누계 차이는 비용을 추정하지 않습니다.
 - **Claude Code:** `$CLAUDE_CONFIG_DIR` 또는 `~/.claude` 아래 `projects`, `transcripts`의 JSONL. assistant 사용량의 입력·출력·캐시 읽기·쓰기와 1시간 캐시 쓰기를 읽습니다. 같은 메시지의 스트리밍 갱신은 최댓값으로 합칩니다.
+- **Pi:** `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/**/*.jsonl`의 assistant 메시지와 명시적 `usage` 항목. 서비스·모델, 입력·출력·캐시 읽기·쓰기·1시간 캐시 쓰기 및 양수의 `usage.cost.total`을 읽습니다. fork로 복사된 항목은 entry ID와 timestamp로 중복 제거하며, 출력에 포함된 추론 토큰을 다시 더하지 않습니다.
 - **OpenCode:** `$XDG_DATA_HOME/opencode` 또는 `~/.local/share/opencode`의 `opencode*.db`. `OPENCODE_DB`가 있으면 그 파일을 사용합니다. `message`, `session_message`, `session`, `session_v2`의 사용량 필드만 읽기 전용 SQL로 조회합니다. 양수로 기록된 USD 비용을 우선 사용하며, 없으면 지원하는 정확한 OpenAI·Anthropic 모델만 정가로 계산합니다.
 
-**DeepSeek 등 다른 서비스도 OpenCode에 서비스·모델 정보가 기록되면 표시합니다.** 양수의 기록 비용이 없으면 현재는 추정 불가입니다. [DeepSeek 공식 요금](https://api-docs.deepseek.com/quick_start/pricing)은 모델 버전·혼잡 시간·공휴일 등에 따라 달라지므로 다른 모델의 가격을 대신 적용하지 않습니다. 기록된 0만으로 무료 사용이라고 판단하지 않습니다.
+**DeepSeek 등 다른 서비스도 OpenCode 또는 Pi에 서비스·모델 정보가 기록되면 표시합니다.** 양수의 기록 비용이 없으면 현재는 추정 불가입니다. [DeepSeek 공식 요금](https://api-docs.deepseek.com/quick_start/pricing)은 모델 버전·혼잡 시간·공휴일 등에 따라 달라지므로 다른 모델의 가격을 대신 적용하지 않습니다. 기록된 0만으로 무료 사용이라고 판단하지 않습니다.
+
+Pi는 공식 [사용량 타입](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/types.ts), [세션 항목](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts), [경로 설정](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/config.ts)을 기준으로 지원합니다. 기록 비용은 제공자 보고 표시가 없다면 클라이언트 추정값이며, 통합 메뉴도 추정액입니다. 별도 compaction·branch-summary·tool-result 사용량은 현재 포함하지 않습니다. 안정적인 ID·timestamp가 없는 옛 형식은 건너뛰고 부분 조회로 표시합니다. 별도 `--session-dir` 경로는 자동 탐색하지 않습니다.
+
+2026-11-12 개발 Mac의 경로 확인에서는 `~/.pi/agent/extensions`만 있고 `~/.pi/agent/sessions`는 없었습니다. 따라서 어댑터 추가만으로 다른 위치의 과거 기록이 나타나지는 않습니다. 로컬 OpenCode DB는 지원하는 스키마와 모델 변경 기록만 있고 토큰·비용 사용량은 없었습니다. 이는 **지원되는 사용량 기록 없음**이며 **일부 기록만 조회됨**이 아닙니다. 이 진단에서 비공개 대화·메시지 내용은 확인하지 않았습니다. OMP 등 다른 클라이언트는 별도로 검증한 어댑터가 필요하며, 설정·확장 폴더만으로 사용 기록이 있다고 판단하지 않습니다.
 
 OpenCode 세션 누계는 모델을 바꿔 사용했을 수 있으므로 메시지별 기록 비용과 정확히 일치할 때만 모델별로 나눕니다. 그 외에는 **mixed/unspecified · session totals**로 표시합니다. 마이그레이션된 누계는 더하지 않고 최댓값을 쓰며, DB 간 같은 세션은 기본 `opencode.db`를 우선합니다. 옛 OpenCode JSON 저장 형식, 원격 컴퓨터, 웹 대화, 다른 클라이언트, 앱 환경에 전달되지 않은 별도 경로는 포함하지 않습니다. 셸에만 설정한 환경변수는 로그인 시 실행되는 앱에 자동 전달되지 않습니다.
 

@@ -32,12 +32,14 @@ struct OpenCodeCostReader {
             guard (try? database.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true else { incomplete = true; continue }
             do {
                 let tables = Set(try query(database, "SELECT name FROM sqlite_master WHERE type='table'").compactMap { $0["name"] as? String })
+                var recognizedSchema = false
                 var sessions: [String: UsageCostRecord] = [:]
                 // Newer OpenCode stores cumulative totals. Do not attribute a session's entire
                 // history to its last selected model: it may have switched models/providers.
                 for table in ["session_v2", "session"] where tables.contains(table) {
                     let columns = try columns(database, table)
                     guard columns.contains("id"), columns.contains("cost"), columns.contains("tokens_input") else { continue }
+                    recognizedSchema = true
                     let names = ["cost", "tokens_input", "tokens_output", "tokens_reasoning", "tokens_cache_read", "tokens_cache_write"]
                     let fields = names.map { columns.contains($0) ? $0 : "0 AS \($0)" }.joined(separator: ",")
                     let rows = try query(database, "SELECT id,\(fields) FROM \(table) LIMIT 50001")
@@ -62,6 +64,7 @@ struct OpenCodeCostReader {
                 for table in ["session_message", "message"] where tables.contains(table) {
                     let columns = try columns(database, table)
                     guard ["id", "session_id", "data"].allSatisfy(columns.contains) else { continue }
+                    recognizedSchema = true
                     let predicate = table == "message" ? "json_extract(data,'$.role')='assistant'"
                         : columns.contains("type") ? "type='assistant'" : "json_extract(data,'$.tokens.input') IS NOT NULL"
                     let projections = ["COALESCE(json_extract(data,'$.modelID'),json_extract(data,'$.model.modelID'),json_extract(data,'$.model.id'))",
@@ -95,7 +98,8 @@ struct OpenCodeCostReader {
                 for (id, record) in sessions where !represented.contains(id) && !selectedSessions.contains(id) { merge(record, key: "session:\(id)", into: &all) }
                 selectedSessions.formUnion(sessions.keys)
                 selectedSessions.formUnion(messages.values.map { $0.0 })
-                if sessions.isEmpty && messages.isEmpty && !tables.isEmpty { incomplete = true }
+                // A supported database can contain only model switches and no billable usage.
+                if !recognizedSchema && !tables.isEmpty { incomplete = true }
             } catch { incomplete = true }
         }
         return (Array(all.values), incomplete)
