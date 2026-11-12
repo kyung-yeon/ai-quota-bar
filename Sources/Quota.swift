@@ -54,6 +54,7 @@ struct ResetCredit: Decodable {
     let resetType: String
     let status: String
     let expiresAt: Double?
+    var quantity: Int? = nil
 }
 
 struct ResetCredits: Decodable {
@@ -63,9 +64,19 @@ struct ResetCredits: Decodable {
     func availableDetails(at date: Date) -> [ResetCredit] {
         guard availableCount > 0 else { return [] }
         return (credits ?? []).filter {
-            $0.status == "available" && $0.resetType == "codexRateLimits" &&
+            $0.status == "available" && ["codexRateLimits", "claudeRateLimits"].contains($0.resetType) &&
             ($0.expiresAt.map { $0 > date.timeIntervalSince1970 } ?? true)
         }.sorted { ($0.expiresAt ?? .infinity) < ($1.expiresAt ?? .infinity) }
+    }
+
+    func displayCount(at date: Date) -> Int {
+        // Claude inventory is complete; its expired grants stop counting between refreshes.
+        // Codex's server total remains authoritative because its details may be incomplete.
+        let expired = (credits ?? []).filter {
+            $0.resetType == "claudeRateLimits" && $0.status == "available" &&
+            ($0.expiresAt.map { $0 <= date.timeIntervalSince1970 } ?? false)
+        }.reduce(0) { $0 + ($1.quantity ?? 1) }
+        return max(0, availableCount - expired)
     }
 
     func hasExpiredDetails(at date: Date) -> Bool {
@@ -130,7 +141,7 @@ struct ClaudeUsage: Decodable {
     }
     let limits: [ScopedLimit]?
 
-    static func decode(_ data: Data) throws -> QuotaSnapshot {
+    static func decode(_ data: Data, now: Date = Date()) throws -> QuotaSnapshot {
         let usage = try JSONDecoder().decode(Self.self, from: data)
         var windows = try [(usage.five_hour, 300), (usage.seven_day, 10080)].compactMap { window, minutes -> QuotaWindow? in
             guard let window, window.utilization.isFinite else { return nil }
@@ -145,12 +156,12 @@ struct ClaudeUsage: Decodable {
             windows.append(QuotaWindow(usedPercent: percent, windowDurationMins: 10080,
                                        resetsAt: try limit.resets_at.map(parseReset), modelName: model))
         }
+        let resets = ClaudeResetCredits.decode(data, now: now)
         guard !windows.isEmpty else { throw ProviderFailure.noData }
-        // Claude's usage endpoint has no verified reset-credit contract. Extra usage is paid credit, not a reset.
-        return QuotaSnapshot(windows: windows, resetCredits: nil)
+        return QuotaSnapshot(windows: windows, resetCredits: resets)
     }
 
-    private static func parseReset(_ raw: String) throws -> Double {
+    static func parseReset(_ raw: String) throws -> Double {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let fractional = format.date(from: raw)

@@ -12,7 +12,7 @@ A native macOS menu bar app for checking Codex and Claude Code usage in one plac
 
 - Provider icons and remaining weekly quota in the menu bar; session and weekly limits in the menu when available.
 - Reset times displayed in your Mac's time zone.
-- Available Codex reset passes with individual expiration dates, when the service supplies them.
+- Available Codex and Claude reset passes with expiration dates, when the service supplies them.
 - Independent **Install required** and **Sign in required** states for each provider.
 - Refresh every five minutes, on wake, or manually with **⌘R**.
 - Local-history **API-equivalent USD estimates** for Codex, Claude Code, and OpenCode-recorded providers such as DeepSeek, with provider/model breakdowns. Unknown prices stay unestimated; these are not subscription bills. [Sources, privacy, and limits](Docs/UsageCosts.md).
@@ -118,7 +118,7 @@ See the [completion notification guide](Docs/Notifications.md) for supported ver
 
 **Claude Code:** Reads its existing OAuth credential from the macOS Keychain, with Claude Code's `.credentials.json` fallback. It supports the `CLAUDE_CONFIG_DIR`-specific Keychain name and `CLAUDE_CODE_OAUTH_TOKEN` when supplied in the app's launch environment. It requests the same `https://api.anthropic.com/api/oauth/usage` endpoint used by the official CLI and reads `five_hour` and `seven_day` utilization. This is an internal endpoint, not a stable public API; changes may require an update. Credential storage is described in [Claude Code authentication](https://code.claude.com/docs/en/authentication).
 
-Claude's usage response does not have a verified reset-pass schema in this implementation, so its pass section displays **unavailable**, rather than assuming zero passes. Paid extra usage is not treated as a reset pass. Claude quota retrieval needs a signed-in subscription account; it has not been verified against a live Claude account on the development Mac because no Claude CLI is installed there.
+Claude saved reset passes are read from the optional `cedar_ember` inventory in the same usage response. The count sums each eligible, started, unpaused, unexpired grant's `resets_left`, with expiry from `ends_at`. This is separate from quota reset timestamps and paid usage credits. Missing, ineligible, or malformed inventory displays **not reported by API**, not zero; this does not mean the account has no passes. The app only reads inventory and never redeems a pass. This internal contract and its CLI surface/version requirements are not a stable public API. See [Claude reset inventory details](Docs/ClaudeUsage.md).
 
 Credentials and usage responses are not written to logs or bundled with the app. Claude credentials are read in memory and sent only to Anthropic's usage endpoint; redirects are rejected. Codex handles its own authentication. Network failures are shown separately from sign-in requirements.
 
