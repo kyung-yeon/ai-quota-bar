@@ -132,6 +132,9 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     private var wakeObserver: NSObjectProtocol?
     private var states = Dictionary(uniqueKeysWithValues: Provider.allCases.map { ($0, ProviderState()) })
     private var completions: CompletionController?
+    private var usageCost: UsageCostSnapshot?
+    private var costRefreshing = false
+    private var costAttemptedAt = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -155,6 +158,7 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.render()
+                if Date().timeIntervalSince(self.costAttemptedAt) >= 300 { self.refreshCost() }
                 for provider in Provider.allCases where Date().timeIntervalSince(self.states[provider]?.attemptedAt ?? .distantPast) >= 300 {
                     self.refresh(provider)
                 }
@@ -164,8 +168,22 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
     }
 
     @objc func refresh() {
+        refreshCost()
         completions?.refreshConnections(force: true)
         Provider.allCases.forEach { refresh($0) }
+    }
+
+    private func refreshCost() {
+        guard !costRefreshing, !CommandLine.arguments.contains("--smoke-test") else { return }
+        costRefreshing = true
+        costAttemptedAt = Date()
+        Task { @MainActor [weak self] in
+            let snapshot = await Task.detached(priority: .utility) { UsageCostScanner().scan() }.value
+            guard let self else { return }
+            self.usageCost = snapshot
+            self.costRefreshing = false
+            self.render()
+        }
     }
 
     private func refresh(_ provider: Provider, allowKeychainPrompt: Bool = false) {
@@ -258,6 +276,8 @@ func creditExpiryText(_ credit: ResetCredit) -> String {
             }
             menu.addItem(.separator())
         }
+        menu.addItem(UsageCostMenu.make(usageCost, refreshing: costRefreshing))
+        menu.addItem(.separator())
         let info = NSMenuItem(title: L10n.text("5분마다 갱신", "Refreshes every 5 minutes") + " · " + TimeZone.autoupdatingCurrent.identifier, action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
